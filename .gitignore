@@ -6,8 +6,8 @@
 *.dylib
 bin/
 dist/
-etapo
-etapo-*
+/etapo
+/etapo-*
 
 # Test binary, built with `go test -c`
 *.test

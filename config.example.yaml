@@ -1,0 +1,64 @@
+# Etapo Configuration
+# Ultra-lightweight energy monitoring for Tapo P115 / P110 sockets
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+storage:
+  # SQLite database path
+  db_path: "./data/etapo.db"
+  # How often in seconds to flush in-memory batches to disk (protects Raspberry Pi SD card)
+  flush_interval_sec: 30
+  # Maximum buffered readings before forcing an immediate write
+  max_buffer_size: 100
+  # Data retention in days
+  retention_days: 90
+
+collector:
+  # Polling frequency in seconds for each socket
+  poll_interval_sec: 10
+
+billing:
+  # Display currency (EUR, GBP, USD)
+  currency: "EUR"
+  # Cost per kWh to calculate real-time estimated energy expense
+  cost_per_kwh: 0.32
+
+# Tapo account credentials (used when type is "tapo")
+# Can also be specified via environment variables: TAPO_USERNAME and TAPO_PASSWORD
+tapo_auth:
+  username: "your-tplink-email@example.com"
+  password: "your-tplink-password"
+
+# Registered smart plugs
+# Use type "mock" for simulator testing before physical sockets arrive.
+# Switch type to "tapo" and specify local LAN IP when your Tapo P115 sockets arrive.
+plugs:
+  - id: "living-room-tv"
+    name: "Living Room TV & Console"
+    model: "P115"
+    type: "mock"               # Change to "tapo" for physical plug
+    mock_profile: "tv"         # Profiles: tv, fridge, workstation, kettle, default
+    ip: "192.168.1.50"
+
+  - id: "kitchen-fridge"
+    name: "Kitchen Refrigerator"
+    model: "P115"
+    type: "mock"
+    mock_profile: "fridge"
+    ip: "192.168.1.51"
+
+  - id: "home-office-desk"
+    name: "Workstation Desk"
+    model: "P115"
+    type: "mock"
+    mock_profile: "workstation"
+    ip: "192.168.1.52"
+
+  - id: "kitchen-kettle"
+    name: "Electric Kettle"
+    model: "P115"
+    type: "mock"
+    mock_profile: "kettle"
+    ip: "192.168.1.53"

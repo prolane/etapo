@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Etapo — Tapo P115 Energy Monitor</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%20%220%22%20100%20100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              500: '#22c55e',
+              600: '#16a34a',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.85; transform: scale(1.02); }
+    }
+    .live-pulse {
+      animation: pulse-slow 2.5s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500 selection:text-white">
+
+  <!-- Top Navigation -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50 px-4 lg:px-8 py-3.5 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+        <span class="text-xl">⚡</span>
+      </div>
+      <div>
+        <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+          Etapo
+          <span class="text-xs font-normal px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Raspberry Pi</span>
+        </h1>
+        <p class="text-xs text-slate-400">Tapo P115 Energy Monitor</p>
+      </div>
+    </div>
+
+    <!-- Live Status Indicator -->
+    <div class="flex items-center space-x-4">
+      <div id="connection-badge" class="flex items-center space-x-2 text-xs px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700">
+        <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse" id="conn-dot"></span>
+        <span id="conn-text" class="text-slate-300">Connecting...</span>
+      </div>
+      <button onclick="refreshAll()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition text-xs flex items-center gap-1.5 border border-slate-700" title="Refresh">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
+
+    <!-- KPI Metric Summary Row -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <!-- Total Power -->
+      <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800/80 shadow-sm relative overflow-hidden group">
+        <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl group-hover:bg-emerald-500/10 transition"></div>
+        <p class="text-xs font-medium uppercase tracking-wider text-slate-400">Total Live Power</p>
+        <div class="mt-2 flex items-baseline gap-1.5">
+          <span id="stat-total-power" class="text-3xl font-extrabold text-white tracking-tight">0.0</span>
+          <span class="text-sm font-semibold text-emerald-400">W</span>
+        </div>
+        <p class="text-xs text-slate-500 mt-1">Instantaneous draw</p>
+      </div>
+
+      <!-- Today's Energy -->
+      <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800/80 shadow-sm relative overflow-hidden group">
+        <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-blue-500/5 rounded-full blur-xl group-hover:bg-blue-500/10 transition"></div>
+        <p class="text-xs font-medium uppercase tracking-wider text-slate-400">Today's Consumption</p>
+        <div class="mt-2 flex items-baseline gap-1.5">
+          <span id="stat-today-energy" class="text-3xl font-extrabold text-white tracking-tight">0.00</span>
+          <span class="text-sm font-semibold text-blue-400">kWh</span>
+        </div>
+        <p class="text-xs text-slate-500 mt-1">Cumulative today</p>
+      </div>
+
+      <!-- Estimated Daily Cost -->
+      <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800/80 shadow-sm relative overflow-hidden group">
+        <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-purple-500/5 rounded-full blur-xl group-hover:bg-purple-500/10 transition"></div>
+        <p class="text-xs font-medium uppercase tracking-wider text-slate-400">Est. Cost Today</p>
+        <div class="mt-2 flex items-baseline gap-1.5">
+          <span id="stat-cost-symbol" class="text-xl font-bold text-purple-400">€</span>
+          <span id="stat-today-cost" class="text-3xl font-extrabold text-white tracking-tight">0.00</span>
+        </div>
+        <p class="text-xs text-slate-500 mt-1">Based on configured rate</p>
+      </div>
+
+      <!-- Sockets Online -->
+      <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800/80 shadow-sm relative overflow-hidden group">
+        <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-amber-500/5 rounded-full blur-xl group-hover:bg-amber-500/10 transition"></div>
+        <p class="text-xs font-medium uppercase tracking-wider text-slate-400">Active Sockets</p>
+        <div class="mt-2 flex items-baseline gap-1.5">
+          <span id="stat-active-plugs" class="text-3xl font-extrabold text-white tracking-tight">0</span>
+          <span id="stat-total-plugs" class="text-sm font-semibold text-slate-400">/ 0</span>
+        </div>
+        <p class="text-xs text-slate-500 mt-1">Online & reporting</p>
+      </div>
+    </div>
+
+    <!-- Socket Cards Section -->
+    <div>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+          <span>Smart Sockets</span>
+          <span id="sockets-count-badge" class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">0</span>
+        </h2>
+      </div>
+
+      <div id="plugs-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Rendered dynamically -->
+        <div class="col-span-full py-12 text-center text-slate-500">
+          Loading socket telemetry...
+        </div>
+      </div>
+    </div>
+
+    <!-- Power Consumption Graph -->
+    <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-lg font-bold text-white tracking-tight">Power Consumption Trend</h2>
+          <p class="text-xs text-slate-400">Historical wattage curve</p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <select id="chart-plug-select" onchange="loadChartData()" class="bg-slate-800 border border-slate-700 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+            <option value="all">All Sockets (Total)</option>
+          </select>
+          <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs">
+            <button onclick="setChartRange('1h')" id="btn-range-1h" class="px-2.5 py-1 rounded-md text-emerald-400 bg-slate-700/80 font-medium">1h</button>
+            <button onclick="setChartRange('24h')" id="btn-range-24h" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">24h</button>
+            <button onclick="setChartRange('7d')" id="btn-range-7d" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">7d</button>
+          </div>
+        </div>
+      </div>
+      <div class="h-64 sm:h-72 w-full">
+        <canvas id="powerChart"></canvas>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Client-side Logic -->
+  <script>
+    let plugsData = [];
+    let currentRange = '1h';
+    let chartInstance = null;
+    let currency = 'EUR';
+
+    const currencySymbols = { 'EUR': '€', 'GBP': '£', 'USD': '$' };
+
+    async function init() {
+      initChart();
+      await fetchSummary();
+      await fetchPlugs();
+      await loadChartData();
+      connectSSE();
+    }
+
+    async function refreshAll() {
+      await fetchSummary();
+      await fetchPlugs();
+      await loadChartData();
+    }
+
+    async function fetchSummary() {
+      try {
+        const res = await fetch('/api/summary');
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        currency = data.currency || 'EUR';
+        const symbol = currencySymbols[currency] || currency;
+
+        document.getElementById('stat-total-power').textContent = (data.total_power_watts || 0).toFixed(1);
+        document.getElementById('stat-today-energy').textContent = (data.total_energy_today_kwh || 0).toFixed(2);
+        document.getElementById('stat-cost-symbol').textContent = symbol;
+        document.getElementById('stat-today-cost').textContent = (data.estimated_cost_day || 0).toFixed(2);
+        document.getElementById('stat-active-plugs').textContent = data.active_plugs_count || 0;
+        document.getElementById('stat-total-plugs').textContent = `/ ${data.total_plugs_count || 0}`;
+      } catch (err) {
+        console.error('Failed to fetch summary:', err);
+      }
+    }
+
+    async function fetchPlugs() {
+      try {
+        const res = await fetch('/api/plugs');
+        if (!res.ok) return;
+        plugsData = await res.json();
+        renderPlugs(plugsData);
+        updateChartSelect(plugsData);
+      } catch (err) {
+        console.error('Failed to fetch plugs:', err);
+      }
+    }
+
+    function renderPlugs(plugs) {
+      const grid = document.getElementById('plugs-grid');
+      document.getElementById('sockets-count-badge').textContent = plugs.length;
+
+      if (plugs.length === 0) {
+        grid.innerHTML = `<div class="col-span-full py-8 text-center text-slate-500">No smart plugs configured yet.</div>`;
+        return;
+      }
+
+      grid.innerHTML = plugs.map(p => {
+        const r = p.latest_reading || { power_watts: 0, voltage_v: 230, current_ma: 0, energy_today_kwh: 0, energy_month_kwh: 0 };
+        const isOn = p.is_on;
+        const isMock = p.driver_type === 'mock';
+
+        return `
+          <div id="card-plug-${p.id}" class="p-5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700/80 transition-all shadow-sm flex flex-col justify-between">
+            <div>
+              <!-- Card Header -->
+              <div class="flex items-start justify-between">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <h3 class="font-bold text-white text-base">${escapeHTML(p.name)}</h3>
+                    <span class="text-[10px] font-semibold uppercase px-2 py-0.5 rounded ${isMock ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}">
+                      ${p.model || 'P115'} ${isMock ? '• MOCK' : ''}
+                    </span>
+                  </div>
+                  <p class="text-xs text-slate-500 mt-0.5 font-mono">${p.ip || 'LAN'}</p>
+                </div>
+
+                <!-- On/Off Switch Button -->
+                <button onclick="togglePlug('${p.id}', ${!isOn})" id="btn-toggle-${p.id}" class="px-3 py-1.5 rounded-xl font-medium text-xs transition-all flex items-center gap-1.5 ${isOn ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700'}">
+                  <span class="w-2 h-2 rounded-full ${isOn ? 'bg-emerald-400 shadow-sm shadow-emerald-400' : 'bg-slate-500'}"></span>
+                  <span>${isOn ? 'ON' : 'OFF'}</span>
+                </button>
+              </div>
+
+              <!-- Live Power Metric Display -->
+              <div class="mt-4 p-4 rounded-xl bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
+                <div>
+                  <p class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Live Power</p>
+                  <div class="flex items-baseline gap-1 mt-1">
+                    <span id="watts-${p.id}" class="text-2xl font-black text-white tracking-tight">${isOn ? r.power_watts.toFixed(1) : '0.0'}</span>
+                    <span class="text-xs font-semibold text-emerald-400">Watts</span>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <p class="text-[11px] text-slate-500">Voltage / Current</p>
+                  <p class="text-xs font-medium text-slate-300 mt-1 font-mono">
+                    <span id="volts-${p.id}">${r.voltage_v.toFixed(0)}</span>V · <span id="current-${p.id}">${r.current_ma.toFixed(0)}</span>mA
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bottom Stats -->
+            <div class="mt-4 pt-3 border-t border-slate-800/60 grid grid-cols-2 text-xs">
+              <div>
+                <span class="text-slate-500">Today:</span>
+                <span id="kwh-today-${p.id}" class="font-semibold text-slate-200 ml-1 font-mono">${r.energy_today_kwh.toFixed(3)} kWh</span>
+              </div>
+              <div class="text-right">
+                <span class="text-slate-500">This Month:</span>
+                <span id="kwh-month-${p.id}" class="font-semibold text-slate-200 ml-1 font-mono">${r.energy_month_kwh.toFixed(2)} kWh</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function togglePlug(id, newState) {
+      const btn = document.getElementById(`btn-toggle-${id}`);
+      if (btn) btn.disabled = true;
+
+      try {
+        const res = await fetch(`/api/plugs/${id}/power`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ on: newState })
+        });
+        if (res.ok) {
+          await fetchPlugs();
+          await fetchSummary();
+        }
+      } catch (err) {
+        console.error('Toggle error:', err);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    function updateChartSelect(plugs) {
+      const select = document.getElementById('chart-plug-select');
+      const currentVal = select.value;
+      select.innerHTML = `<option value="all">All Sockets (Total)</option>` + 
+        plugs.map(p => `<option value="${p.id}">${escapeHTML(p.name)}</option>`).join('');
+      select.value = currentVal || 'all';
+    }
+
+    function initChart() {
+      const ctx = document.getElementById('powerChart').getContext('2d');
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [{
+            label: 'Power (Watts)',
+            data: [],
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            fill: true,
+            tension: 0.35,
+            borderWidth: 2,
+            pointRadius: 2,
+            pointHoverRadius: 5
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#0f172a',
+              borderColor: '#334155',
+              borderWidth: 1,
+              titleColor: '#94a3b8',
+              bodyColor: '#f8fafc',
+              displayColors: false,
+              callbacks: {
+                label: (ctx) => `${ctx.parsed.y.toFixed(1)} Watts`
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(51, 65, 85, 0.25)' },
+              ticks: { color: '#64748b', maxTicksLimit: 8, font: { size: 11 } }
+            },
+            y: {
+              grid: { color: 'rgba(51, 65, 85, 0.25)' },
+              ticks: { color: '#64748b', font: { size: 11 } },
+              beginAtZero: true
+            }
+          }
+        }
+      });
+    }
+
+    async function loadChartData() {
+      const select = document.getElementById('chart-plug-select');
+      const plugId = select.value || 'all';
+
+      try {
+        const url = `/api/plugs/${plugId}/history?range=${currentRange}`;
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const points = await res.json();
+
+        const labels = points.map(pt => {
+          const d = new Date(pt.timestamp);
+          return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        });
+        const values = points.map(pt => pt.power_watts);
+
+        chartInstance.data.labels = labels;
+        chartInstance.data.datasets[0].data = values;
+        chartInstance.update();
+      } catch (err) {
+        console.error('Failed to load chart data:', err);
+      }
+    }
+
+    function setChartRange(range) {
+      currentRange = range;
+      ['1h', '24h', '7d'].forEach(r => {
+        const btn = document.getElementById(`btn-range-${r}`);
+        if (r === range) {
+          btn.className = 'px-2.5 py-1 rounded-md text-emerald-400 bg-slate-700/80 font-medium';
+        } else {
+          btn.className = 'px-2.5 py-1 rounded-md text-slate-400 hover:text-white';
+        }
+      });
+      loadChartData();
+    }
+
+    function connectSSE() {
+      const dot = document.getElementById('conn-dot');
+      const text = document.getElementById('conn-text');
+
+      const evtSource = new EventSource('/api/events');
+
+      evtSource.onopen = () => {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400';
+        text.textContent = 'Live SSE Connected';
+      };
+
+      evtSource.addEventListener('reading', (e) => {
+        try {
+          const r = JSON.parse(e.data);
+          
+          // Update card DOM directly without re-render
+          const wElem = document.getElementById(`watts-${r.plug_id}`);
+          const vElem = document.getElementById(`volts-${r.plug_id}`);
+          const cElem = document.getElementById(`current-${r.plug_id}`);
+          const ktElem = document.getElementById(`kwh-today-${r.plug_id}`);
+          const kmElem = document.getElementById(`kwh-month-${r.plug_id}`);
+
+          if (wElem) wElem.textContent = r.power_watts.toFixed(1);
+          if (vElem) vElem.textContent = r.voltage_v.toFixed(0);
+          if (cElem) cElem.textContent = r.current_ma.toFixed(0);
+          if (ktElem) ktElem.textContent = `${r.energy_today_kwh.toFixed(3)} kWh`;
+          if (kmElem) kmElem.textContent = `${r.energy_month_kwh.toFixed(2)} kWh`;
+
+          // Recalculate top summary
+          fetchSummary();
+        } catch (err) {
+          console.error('SSE reading parse error:', err);
+        }
+      });
+
+      evtSource.onerror = () => {
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+        text.textContent = 'Reconnecting...';
+      };
+    }
+
+    function escapeHTML(str) {
+      return (str || '').replace(/[&<>'"]/g, 
+        tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+      );
+    }
+
+    // Auto-refresh chart every 30 seconds
+    setInterval(() => {
+      loadChartData();
+    }, 30000);
+
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
