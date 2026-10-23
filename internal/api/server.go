@@ -42,6 +42,7 @@ func NewServer(cfg *config.Config, store *storage.Storage, col *collector.Collec
 	mux.HandleFunc("/api/plugs", s.handlePlugs)
 	mux.HandleFunc("/api/plugs/", s.handlePlugSubroutes)
 	mux.HandleFunc("/api/summary", s.handleSummary)
+	mux.HandleFunc("/api/breakdown", s.handleBreakdown)
 	mux.Handle("/api/events", broker)
 	mux.HandleFunc("/health", s.handleHealth)
 
@@ -85,13 +86,37 @@ func (s *Server) handlePlugs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plugs, err := s.storage.GetPlugs(r.Context())
+	plugs, err := s.storage.GetPlugs(r.Context(), s.cfg.Billing.CostPerKWh)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	writeJSON(w, http.StatusOK, plugs)
+}
+
+func (s *Server) handleBreakdown(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	rangeParam := r.URL.Query().Get("range")
+	if rangeParam != "month" {
+		rangeParam = "today"
+	}
+	byParam := r.URL.Query().Get("by")
+	if byParam != "category" {
+		byParam = "plug"
+	}
+
+	breakdown, err := s.storage.GetBreakdown(r.Context(), rangeParam, byParam, s.cfg.Billing.CostPerKWh)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, breakdown)
 }
 
 func (s *Server) handlePlugSubroutes(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +131,7 @@ func (s *Server) handlePlugSubroutes(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		plug, err := s.storage.GetPlug(r.Context(), plugID)
+		plug, err := s.storage.GetPlug(r.Context(), plugID, s.cfg.Billing.CostPerKWh)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

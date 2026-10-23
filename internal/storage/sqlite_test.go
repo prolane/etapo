@@ -57,8 +57,8 @@ func TestStorageLifecycle(t *testing.T) {
 		t.Fatalf("flush failed: %v", err)
 	}
 
-	// 3. Verify Plugs query returns latest reading
-	plugs, err := store.GetPlugs(ctx)
+	// 3. Verify Plugs query returns latest reading and analytics
+	plugs, err := store.GetPlugs(ctx, 0.30)
 	if err != nil {
 		t.Fatalf("failed to get plugs: %v", err)
 	}
@@ -70,6 +70,9 @@ func TestStorageLifecycle(t *testing.T) {
 	}
 	if plugs[0].LatestReading.PowerWatts != 125.5 {
 		t.Errorf("expected 125.5W, got %f", plugs[0].LatestReading.PowerWatts)
+	}
+	if plugs[0].PeakWattsToday < 125.0 {
+		t.Errorf("expected peak watts to be recorded, got %f", plugs[0].PeakWattsToday)
 	}
 
 	// 4. Verify Summary

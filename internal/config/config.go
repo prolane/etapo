@@ -14,6 +14,7 @@ type PlugConfig struct {
 	ID          string `yaml:"id"`
 	Name        string `yaml:"name"`
 	Model       string `yaml:"model"`        // e.g. "P115"
+	Category    string `yaml:"category"`     // e.g. "Kitchen", "Office", "Entertainment", "Utility"
 	Type        string `yaml:"type"`         // "mock" or "tapo"
 	IP          string `yaml:"ip"`           // Local LAN IP, e.g. 192.168.1.50
 	MockProfile string `yaml:"mock_profile"` // "fridge", "tv", "workstation", "kettle"

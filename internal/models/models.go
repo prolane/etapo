@@ -7,6 +7,7 @@ type Plug struct {
 	ID         string    `json:"id"`
 	Name       string    `json:"name"`
 	Model      string    `json:"model"`       // e.g. "P115", "P110"
+	Category   string    `json:"category"`    // e.g. "Kitchen", "Office", "Entertainment", "Utility"
 	DriverType string    `json:"driver_type"` // "mock" or "tapo"
 	IP         string    `json:"ip"`
 	MAC        string    `json:"mac,omitempty"`
@@ -47,26 +48,51 @@ type EnergyUsage struct {
 	EnergyMonthKWh float64 `json:"energy_month_kwh"`
 }
 
-// PlugWithLatest combines a plug metadata with its most recent telemetry.
+// PlugWithLatest combines plug metadata, latest reading, and homeowner analytics.
 type PlugWithLatest struct {
 	Plug
-	LatestReading *EnergyReading `json:"latest_reading,omitempty"`
+	LatestReading      *EnergyReading `json:"latest_reading,omitempty"`
+	PeakWattsToday     float64        `json:"peak_watts_today"`     // Peak power recorded today (Max W)
+	AvgWattsToday      float64        `json:"avg_watts_today"`      // Average power consumption today
+	RuntimeTodayHours  float64        `json:"runtime_today_hours"`  // Hours active (> threshold) today
+	StandbyWatts       float64        `json:"standby_watts"`        // Baseline vampire/standby load (02:00-05:00 AM)
+	AnnualStandbyCost  float64        `json:"annual_standby_cost"`  // Projected cost of standby per year (€/yr)
+	EstimatedMonthCost float64        `json:"estimated_month_cost"` // Projected monthly electricity cost (€/mo)
 }
 
-// SystemSummary provides top-level metrics across all sockets.
+// SystemSummary provides top-level metrics across all sockets for the top KPI bar.
 type SystemSummary struct {
-	TotalPowerWatts  float64   `json:"total_power_watts"`
-	TotalEnergyToday float64   `json:"total_energy_today_kwh"`
-	TotalEnergyMonth float64   `json:"total_energy_month_kwh"`
-	EstimatedCostDay float64   `json:"estimated_cost_day"`
-	Currency         string    `json:"currency"`
-	ActivePlugsCount int       `json:"active_plugs_count"`
-	TotalPlugsCount  int       `json:"total_plugs_count"`
-	LastUpdated      time.Time `json:"last_updated"`
+	TotalPowerWatts     float64   `json:"total_power_watts"`      // Instantaneous total draw in Watts
+	LiveBurnRatePerHour float64   `json:"live_burn_rate_per_hour"`// Live burn rate (€/hour or $/hour)
+	TotalEnergyToday    float64   `json:"total_energy_today_kwh"` // Cumulative consumption today (kWh)
+	TotalCostToday      float64   `json:"total_cost_today"`       // Total cost accrued today (€)
+	TotalEnergyMonth    float64   `json:"total_energy_month_kwh"` // Cumulative consumption this month (kWh)
+	EstimatedCostMonth  float64   `json:"estimated_cost_month"`   // Projected monthly cost (€)
+	TotalStandbyWatts   float64   `json:"total_standby_watts"`    // Combined baseline standby load (W)
+	AnnualStandbyWaste  float64   `json:"annual_standby_waste"`   // Total household cost of standby per year (€)
+	Currency            string    `json:"currency"`
+	ActivePlugsCount    int       `json:"active_plugs_count"`
+	TotalPlugsCount     int       `json:"total_plugs_count"`
+	LastUpdated         time.Time `json:"last_updated"`
 }
 
 // HistoryPoint is a compact data point for charts.
 type HistoryPoint struct {
 	Timestamp  time.Time `json:"timestamp"`
 	PowerWatts float64   `json:"power_watts"`
+}
+
+// BreakdownSeries represents one series in a stacked chart (e.g. one plug or category).
+type BreakdownSeries struct {
+	ID    string    `json:"id"`
+	Label string    `json:"label"`
+	Color string    `json:"color,omitempty"`
+	Data  []float64 `json:"data"`
+}
+
+// BreakdownResponse contains formatted data for stacked bar/area consumption charts.
+type BreakdownResponse struct {
+	Range  string            `json:"range"`  // "today" (hourly) or "month" (daily)
+	Labels []string          `json:"labels"` // ["00:00", "01:00", ...] or ["Day 1", "Day 2", ...]
+	Series []BreakdownSeries `json:"series"` // Series per plug or category
 }

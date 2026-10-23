@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Etapo — Tapo P115 Energy Monitor</title>
+  <title>Etapo — Smart Energy Intelligence</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%20%220%22%20100%20100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -15,8 +15,8 @@
           colors: {
             brand: {
               50: '#f0fdf4',
-              500: '#22c55e',
-              600: '#16a34a',
+              500: '#10b981',
+              600: '#059669',
             }
           }
         }
@@ -28,153 +28,276 @@
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.85; transform: scale(1.02); }
     }
-    .live-pulse {
-      animation: pulse-slow 2.5s infinite ease-in-out;
+    .live-dot {
+      animation: pulse-slow 2s infinite ease-in-out;
+    }
+    .modal-backdrop {
+      backdrop-filter: blur(6px);
     }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500 selection:text-white">
 
-  <!-- Top Navigation -->
-  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50 px-4 lg:px-8 py-3.5 flex items-center justify-between">
+  <!-- Top Navbar -->
+  <header class="border-b border-slate-800/80 bg-slate-900/80 backdrop-blur sticky top-0 z-40 px-4 lg:px-8 py-3.5 flex items-center justify-between">
     <div class="flex items-center space-x-3">
-      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
         <span class="text-xl">⚡</span>
       </div>
       <div>
-        <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+        <h1 class="text-base font-bold tracking-tight text-white flex items-center gap-2">
           Etapo
-          <span class="text-xs font-normal px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Raspberry Pi</span>
+          <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Raspberry Pi</span>
         </h1>
-        <p class="text-xs text-slate-400">Tapo P115 Energy Monitor</p>
+        <p class="text-xs text-slate-400">Home Energy Intelligence & Standby Detector</p>
       </div>
     </div>
 
-    <!-- Live Status Indicator -->
-    <div class="flex items-center space-x-4">
-      <div id="connection-badge" class="flex items-center space-x-2 text-xs px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700">
-        <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse" id="conn-dot"></span>
+    <!-- Live SSE Status -->
+    <div class="flex items-center space-x-3">
+      <div id="connection-badge" class="flex items-center space-x-2 text-xs px-3 py-1.5 rounded-full bg-slate-800/80 border border-slate-700">
+        <span class="w-2 h-2 rounded-full bg-amber-400 live-dot" id="conn-dot"></span>
         <span id="conn-text" class="text-slate-300">Connecting...</span>
       </div>
-      <button onclick="refreshAll()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition text-xs flex items-center gap-1.5 border border-slate-700" title="Refresh">
+      <button onclick="refreshAll()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition text-xs border border-slate-700" title="Refresh">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
       </button>
     </div>
   </header>
 
-  <!-- Main Container -->
+  <!-- Main Content -->
   <main class="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
 
-    <!-- KPI Metric Summary Row -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <!-- Total Power -->
+    <!-- 1. TOP KPI BAR -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <!-- Total Current Usage -->
       <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800/80 shadow-sm relative overflow-hidden group">
         <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl group-hover:bg-emerald-500/10 transition"></div>
-        <p class="text-xs font-medium uppercase tracking-wider text-slate-400">Total Live Power</p>
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Live Power</p>
         <div class="mt-2 flex items-baseline gap-1.5">
-          <span id="stat-total-power" class="text-3xl font-extrabold text-white tracking-tight">0.0</span>
-          <span class="text-sm font-semibold text-emerald-400">W</span>
+          <span id="stat-total-power" class="text-3xl lg:text-4xl font-extrabold text-white tracking-tight">0.0</span>
+          <span class="text-sm font-semibold text-emerald-400">Watts</span>
         </div>
-        <p class="text-xs text-slate-500 mt-1">Instantaneous draw</p>
+        <p class="text-xs text-slate-500 mt-1.5 flex items-center gap-1">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+          Instantaneous draw
+        </p>
       </div>
 
-      <!-- Today's Energy -->
-      <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800/80 shadow-sm relative overflow-hidden group">
-        <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-blue-500/5 rounded-full blur-xl group-hover:bg-blue-500/10 transition"></div>
-        <p class="text-xs font-medium uppercase tracking-wider text-slate-400">Today's Consumption</p>
-        <div class="mt-2 flex items-baseline gap-1.5">
-          <span id="stat-today-energy" class="text-3xl font-extrabold text-white tracking-tight">0.00</span>
-          <span class="text-sm font-semibold text-blue-400">kWh</span>
-        </div>
-        <p class="text-xs text-slate-500 mt-1">Cumulative today</p>
-      </div>
-
-      <!-- Estimated Daily Cost -->
-      <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800/80 shadow-sm relative overflow-hidden group">
-        <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-purple-500/5 rounded-full blur-xl group-hover:bg-purple-500/10 transition"></div>
-        <p class="text-xs font-medium uppercase tracking-wider text-slate-400">Est. Cost Today</p>
-        <div class="mt-2 flex items-baseline gap-1.5">
-          <span id="stat-cost-symbol" class="text-xl font-bold text-purple-400">€</span>
-          <span id="stat-today-cost" class="text-3xl font-extrabold text-white tracking-tight">0.00</span>
-        </div>
-        <p class="text-xs text-slate-500 mt-1">Based on configured rate</p>
-      </div>
-
-      <!-- Sockets Online -->
+      <!-- Live Burn Rate (€/hr) -->
       <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800/80 shadow-sm relative overflow-hidden group">
         <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-amber-500/5 rounded-full blur-xl group-hover:bg-amber-500/10 transition"></div>
-        <p class="text-xs font-medium uppercase tracking-wider text-slate-400">Active Sockets</p>
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Live Burn Rate</p>
+        <div class="mt-2 flex items-baseline gap-1">
+          <span id="burn-currency-symbol" class="text-xl font-bold text-amber-400">€</span>
+          <span id="stat-burn-rate" class="text-3xl lg:text-4xl font-extrabold text-white tracking-tight">0.000</span>
+          <span class="text-xs font-semibold text-slate-400 ml-1">/ hour</span>
+        </div>
+        <p class="text-xs text-slate-500 mt-1.5">Current cost rate per hour</p>
+      </div>
+
+      <!-- Total Today (kWh + €) -->
+      <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800/80 shadow-sm relative overflow-hidden group">
+        <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-blue-500/5 rounded-full blur-xl group-hover:bg-blue-500/10 transition"></div>
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Today's Consumption</p>
         <div class="mt-2 flex items-baseline gap-1.5">
-          <span id="stat-active-plugs" class="text-3xl font-extrabold text-white tracking-tight">0</span>
-          <span id="stat-total-plugs" class="text-sm font-semibold text-slate-400">/ 0</span>
+          <span id="stat-today-energy" class="text-3xl lg:text-4xl font-extrabold text-white tracking-tight">0.00</span>
+          <span class="text-sm font-semibold text-blue-400">kWh</span>
         </div>
-        <p class="text-xs text-slate-500 mt-1">Online & reporting</p>
+        <p class="text-xs text-slate-400 mt-1.5 font-medium">
+          Total: <span id="stat-today-cost" class="text-slate-200 font-semibold">€0.00</span> today
+        </p>
+      </div>
+
+      <!-- Household Standby Drain -->
+      <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800/80 shadow-sm relative overflow-hidden group">
+        <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-purple-500/5 rounded-full blur-xl group-hover:bg-purple-500/10 transition"></div>
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Standby Vampire Load</p>
+        <div class="mt-2 flex items-baseline gap-1.5">
+          <span id="stat-standby-watts" class="text-3xl lg:text-4xl font-extrabold text-purple-400 tracking-tight">0.0</span>
+          <span class="text-sm font-semibold text-purple-300">W</span>
+        </div>
+        <p class="text-xs text-slate-400 mt-1.5 font-medium">
+          Waste: <span id="stat-annual-waste" class="text-purple-300 font-semibold">€0.00</span> / year
+        </p>
       </div>
     </div>
 
-    <!-- Socket Cards Section -->
-    <div>
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-          <span>Smart Sockets</span>
-          <span id="sockets-count-badge" class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">0</span>
-        </h2>
-      </div>
-
-      <div id="plugs-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <!-- Rendered dynamically -->
-        <div class="col-span-full py-12 text-center text-slate-500">
-          Loading socket telemetry...
-        </div>
-      </div>
-    </div>
-
-    <!-- Power Consumption Graph -->
+    <!-- 2. REAL-TIME CONSUMPTION CHART (Stacked Area / Bar) -->
     <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
-          <h2 class="text-lg font-bold text-white tracking-tight">Power Consumption Trend</h2>
-          <p class="text-xs text-slate-400">Historical wattage curve</p>
+          <h2 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
+            Energy Consumption Breakdown
+            <span class="text-xs font-normal text-slate-400">Stacked by device</span>
+          </h2>
+          <p class="text-xs text-slate-500">Compare consumption distribution across plugs</p>
         </div>
         <div class="flex items-center space-x-2">
-          <select id="chart-plug-select" onchange="loadChartData()" class="bg-slate-800 border border-slate-700 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500">
-            <option value="all">All Sockets (Total)</option>
-          </select>
+          <!-- Stacked Chart View Toggle -->
           <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs">
-            <button onclick="setChartRange('1h')" id="btn-range-1h" class="px-2.5 py-1 rounded-md text-emerald-400 bg-slate-700/80 font-medium">1h</button>
-            <button onclick="setChartRange('24h')" id="btn-range-24h" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">24h</button>
-            <button onclick="setChartRange('7d')" id="btn-range-7d" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">7d</button>
+            <button onclick="setBreakdownRange('today')" id="btn-chart-today" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Today (Hourly W)</button>
+            <button onclick="setBreakdownRange('month')" id="btn-chart-month" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Month (Daily kWh)</button>
           </div>
         </div>
       </div>
       <div class="h-64 sm:h-72 w-full">
-        <canvas id="powerChart"></canvas>
+        <canvas id="stackedChart"></canvas>
+      </div>
+    </div>
+
+    <!-- 3. "POWER GUZZLERS" & STANDBY LEAK DETECTOR -->
+    <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
+            <span>🧛 Standby Leak Detector & Vampire Load</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-normal">02:00 – 05:00 AM Baseline</span>
+          </h2>
+          <p class="text-xs text-slate-400">Detects silent phantom loads that drain money 24/7 while your household is asleep</p>
+        </div>
+      </div>
+
+      <div id="standby-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+    <!-- 4. DEVICE LEADERBOARD TABLE -->
+    <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
+            Device Leaderboard & Cost Breakdown
+            <span id="table-plugs-count" class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">0</span>
+          </h2>
+          <p class="text-xs text-slate-400">Click any row to open detailed diagnostics and history</p>
+        </div>
+
+        <!-- Category Filter Chips -->
+        <div id="category-filters" class="flex flex-wrap items-center gap-1.5 text-xs">
+          <button onclick="filterCategory('All')" class="cat-chip px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium" data-cat="All">All</button>
+        </div>
+      </div>
+
+      <!-- Leaderboard Table -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800 bg-slate-950/40">
+            <tr>
+              <th class="py-3 px-3 cursor-pointer hover:text-white" onclick="sortTable('name')">Plug / Appliance ⇅</th>
+              <th class="py-3 px-3 cursor-pointer hover:text-white" onclick="sortTable('category')">Category ⇅</th>
+              <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('watts')">Live Watts ⇅</th>
+              <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('peak')">Peak (Max W) ⇅</th>
+              <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('today')">Today (kWh) ⇅</th>
+              <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('month')">Month (kWh) ⇅</th>
+              <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('cost')">Est. Month Cost ⇅</th>
+              <th class="py-3 px-3 text-center">Relay</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboard-body" class="divide-y divide-slate-800/60 font-mono text-slate-300">
+            <!-- Dynamic rows -->
+          </tbody>
+        </table>
       </div>
     </div>
 
   </main>
 
-  <!-- Client-side Logic -->
+  <!-- 5. DEVICE DETAIL MODAL -->
+  <div id="device-modal" class="fixed inset-0 z-50 modal-backdrop bg-slate-950/80 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl relative">
+      <!-- Modal Header -->
+      <div class="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+        <div>
+          <div class="flex items-center gap-2">
+            <h3 id="modal-name" class="text-base font-bold text-white">Device Details</h3>
+            <span id="modal-category" class="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">General</span>
+            <span id="modal-model" class="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">P115</span>
+          </div>
+          <p id="modal-ip" class="text-xs text-slate-500 mt-0.5 font-mono">192.168.1.x</p>
+        </div>
+        <div class="flex items-center space-x-3">
+          <button id="modal-toggle-btn" class="px-3 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition">
+            <span class="w-2 h-2 rounded-full"></span>
+            <span id="modal-toggle-text">Toggle</span>
+          </button>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-5 space-y-5 max-h-[80vh] overflow-y-auto">
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+            <p class="text-[11px] text-slate-400 uppercase">Live Draw</p>
+            <p id="modal-live-watts" class="text-xl font-bold text-white mt-1">0.0 W</p>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+            <p class="text-[11px] text-slate-400 uppercase">Peak Today</p>
+            <p id="modal-peak-watts" class="text-xl font-bold text-emerald-400 mt-1">0.0 W</p>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+            <p class="text-[11px] text-slate-400 uppercase">Runtime Today</p>
+            <p id="modal-runtime" class="text-xl font-bold text-blue-400 mt-1">0.0 h</p>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+            <p class="text-[11px] text-slate-400 uppercase">Standby Drain</p>
+            <p id="modal-standby" class="text-xl font-bold text-purple-400 mt-1">0.0 W</p>
+          </div>
+        </div>
+
+        <!-- Standby Warning Banner if relevant -->
+        <div id="modal-standby-banner" class="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs text-purple-200 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-base">🧛</span>
+            <span>Annual Standby Waste: <strong id="modal-standby-cost">€0.00 / yr</strong></span>
+          </div>
+          <span class="text-[11px] text-purple-400">Baseline load</span>
+        </div>
+
+        <!-- Timeline Chart -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-xs font-semibold text-slate-300">24-Hour Wattage Timeline</p>
+            <span class="text-[11px] text-slate-500">Real-time power curve</span>
+          </div>
+          <div class="h-52 w-full bg-slate-950/40 rounded-xl p-2 border border-slate-800">
+            <canvas id="modalTimelineChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Client Script -->
   <script>
     let plugsData = [];
-    let currentRange = '1h';
-    let chartInstance = null;
-    let currency = 'EUR';
+    let currentCategory = 'All';
+    let sortColumn = 'watts';
+    let sortAsc = false;
+    let currencySymbol = '€';
+    let breakdownRange = 'today';
+    let stackedChartInstance = null;
+    let modalChartInstance = null;
+    let selectedPlugId = null;
 
     const currencySymbols = { 'EUR': '€', 'GBP': '£', 'USD': '$' };
 
     async function init() {
-      initChart();
-      await fetchSummary();
-      await fetchPlugs();
-      await loadChartData();
+      initStackedChart();
+      initModalChart();
+      await refreshAll();
       connectSSE();
     }
 
     async function refreshAll() {
       await fetchSummary();
       await fetchPlugs();
-      await loadChartData();
+      await loadBreakdownChart();
     }
 
     async function fetchSummary() {
@@ -182,16 +305,16 @@
         const res = await fetch('/api/summary');
         if (!res.ok) return;
         const data = await res.json();
-        
-        currency = data.currency || 'EUR';
-        const symbol = currencySymbols[currency] || currency;
+
+        currencySymbol = currencySymbols[data.currency] || data.currency || '€';
+        document.getElementById('burn-currency-symbol').textContent = currencySymbol;
 
         document.getElementById('stat-total-power').textContent = (data.total_power_watts || 0).toFixed(1);
+        document.getElementById('stat-burn-rate').textContent = (data.live_burn_rate_per_hour || 0).toFixed(3);
         document.getElementById('stat-today-energy').textContent = (data.total_energy_today_kwh || 0).toFixed(2);
-        document.getElementById('stat-cost-symbol').textContent = symbol;
-        document.getElementById('stat-today-cost').textContent = (data.estimated_cost_day || 0).toFixed(2);
-        document.getElementById('stat-active-plugs').textContent = data.active_plugs_count || 0;
-        document.getElementById('stat-total-plugs').textContent = `/ ${data.total_plugs_count || 0}`;
+        document.getElementById('stat-today-cost').textContent = `${currencySymbol}${(data.total_cost_today || 0).toFixed(2)}`;
+        document.getElementById('stat-standby-watts').textContent = (data.total_standby_watts || 0).toFixed(1);
+        document.getElementById('stat-annual-waste').textContent = `${currencySymbol}${(data.annual_standby_waste || 0).toFixed(2)}`;
       } catch (err) {
         console.error('Failed to fetch summary:', err);
       }
@@ -202,76 +325,65 @@
         const res = await fetch('/api/plugs');
         if (!res.ok) return;
         plugsData = await res.json();
-        renderPlugs(plugsData);
-        updateChartSelect(plugsData);
+
+        renderCategories();
+        renderStandbyCards();
+        renderLeaderboard();
       } catch (err) {
         console.error('Failed to fetch plugs:', err);
       }
     }
 
-    function renderPlugs(plugs) {
-      const grid = document.getElementById('plugs-grid');
-      document.getElementById('sockets-count-badge').textContent = plugs.length;
+    function renderCategories() {
+      const container = document.getElementById('category-filters');
+      const cats = ['All', ...new Set(plugsData.map(p => p.category || 'General'))];
 
-      if (plugs.length === 0) {
-        grid.innerHTML = `<div class="col-span-full py-8 text-center text-slate-500">No smart plugs configured yet.</div>`;
-        return;
-      }
+      container.innerHTML = cats.map(cat => {
+        const active = cat === currentCategory;
+        return `
+          <button onclick="filterCategory('${cat}')" class="cat-chip px-3 py-1 rounded-lg transition text-xs font-medium ${active ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'}" data-cat="${cat}">
+            ${cat}
+          </button>
+        `;
+      }).join('');
+    }
 
-      grid.innerHTML = plugs.map(p => {
-        const r = p.latest_reading || { power_watts: 0, voltage_v: 230, current_ma: 0, energy_today_kwh: 0, energy_month_kwh: 0 };
-        const isOn = p.is_on;
-        const isMock = p.driver_type === 'mock';
+    function filterCategory(cat) {
+      currentCategory = cat;
+      renderCategories();
+      renderLeaderboard();
+    }
+
+    function renderStandbyCards() {
+      const grid = document.getElementById('standby-grid');
+      // Sort by annual standby cost descending
+      const sorted = [...plugsData].sort((a, b) => (b.annual_standby_cost || 0) - (a.annual_standby_cost || 0));
+
+      grid.innerHTML = sorted.map(p => {
+        const standbyW = p.standby_watts || 0;
+        const annualCost = p.annual_standby_cost || 0;
+        const isHigh = standbyW > 3.0;
 
         return `
-          <div id="card-plug-${p.id}" class="p-5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700/80 transition-all shadow-sm flex flex-col justify-between">
+          <div onclick="openModal('${p.id}')" class="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80 hover:border-purple-500/40 transition cursor-pointer group flex flex-col justify-between">
             <div>
-              <!-- Card Header -->
-              <div class="flex items-start justify-between">
-                <div>
-                  <div class="flex items-center gap-2">
-                    <h3 class="font-bold text-white text-base">${escapeHTML(p.name)}</h3>
-                    <span class="text-[10px] font-semibold uppercase px-2 py-0.5 rounded ${isMock ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}">
-                      ${p.model || 'P115'} ${isMock ? '• MOCK' : ''}
-                    </span>
-                  </div>
-                  <p class="text-xs text-slate-500 mt-0.5 font-mono">${p.ip || 'LAN'}</p>
-                </div>
-
-                <!-- On/Off Switch Button -->
-                <button onclick="togglePlug('${p.id}', ${!isOn})" id="btn-toggle-${p.id}" class="px-3 py-1.5 rounded-xl font-medium text-xs transition-all flex items-center gap-1.5 ${isOn ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700'}">
-                  <span class="w-2 h-2 rounded-full ${isOn ? 'bg-emerald-400 shadow-sm shadow-emerald-400' : 'bg-slate-500'}"></span>
-                  <span>${isOn ? 'ON' : 'OFF'}</span>
-                </button>
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-white group-hover:text-purple-400 transition truncate">${escapeHTML(p.name)}</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded ${isHigh ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}">
+                  ${isHigh ? 'High Standby' : 'Low Standby'}
+                </span>
               </div>
-
-              <!-- Live Power Metric Display -->
-              <div class="mt-4 p-4 rounded-xl bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
-                <div>
-                  <p class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Live Power</p>
-                  <div class="flex items-baseline gap-1 mt-1">
-                    <span id="watts-${p.id}" class="text-2xl font-black text-white tracking-tight">${isOn ? r.power_watts.toFixed(1) : '0.0'}</span>
-                    <span class="text-xs font-semibold text-emerald-400">Watts</span>
-                  </div>
-                </div>
-                <div class="text-right">
-                  <p class="text-[11px] text-slate-500">Voltage / Current</p>
-                  <p class="text-xs font-medium text-slate-300 mt-1 font-mono">
-                    <span id="volts-${p.id}">${r.voltage_v.toFixed(0)}</span>V · <span id="current-${p.id}">${r.current_ma.toFixed(0)}</span>mA
-                  </p>
-                </div>
-              </div>
+              <p class="text-[11px] text-slate-500 mt-0.5">${escapeHTML(p.category || 'General')}</p>
             </div>
 
-            <!-- Bottom Stats -->
-            <div class="mt-4 pt-3 border-t border-slate-800/60 grid grid-cols-2 text-xs">
+            <div class="mt-4 pt-3 border-t border-slate-800/60 flex items-end justify-between">
               <div>
-                <span class="text-slate-500">Today:</span>
-                <span id="kwh-today-${p.id}" class="font-semibold text-slate-200 ml-1 font-mono">${r.energy_today_kwh.toFixed(3)} kWh</span>
+                <p class="text-[10px] uppercase text-slate-400">Night Baseline</p>
+                <p class="text-lg font-mono font-bold text-purple-400">${standbyW.toFixed(1)} <span class="text-xs">W</span></p>
               </div>
               <div class="text-right">
-                <span class="text-slate-500">This Month:</span>
-                <span id="kwh-month-${p.id}" class="font-semibold text-slate-200 ml-1 font-mono">${r.energy_month_kwh.toFixed(2)} kWh</span>
+                <p class="text-[10px] uppercase text-slate-400">Est. Year Cost</p>
+                <p class="text-sm font-mono font-bold text-white">${currencySymbol}${annualCost.toFixed(2)}</p>
               </div>
             </div>
           </div>
@@ -279,10 +391,101 @@
       }).join('');
     }
 
-    async function togglePlug(id, newState) {
-      const btn = document.getElementById(`btn-toggle-${id}`);
-      if (btn) btn.disabled = true;
+    function renderLeaderboard() {
+      const tbody = document.getElementById('leaderboard-body');
+      let filtered = plugsData;
+      if (currentCategory !== 'All') {
+        filtered = plugsData.filter(p => (p.category || 'General') === currentCategory);
+      }
 
+      document.getElementById('table-plugs-count').textContent = filtered.length;
+
+      // Sort
+      filtered.sort((a, b) => {
+        let valA = getSortValue(a, sortColumn);
+        let valB = getSortValue(b, sortColumn);
+        if (typeof valA === 'string') {
+          return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        }
+        return sortAsc ? valA - valB : valB - valA;
+      });
+
+      tbody.innerHTML = filtered.map(p => {
+        const r = p.latest_reading || { power_watts: 0, energy_today_kwh: 0, energy_month_kwh: 0 };
+        const isOn = p.is_on;
+        const liveW = isOn ? r.power_watts : 0;
+        const peakW = p.peak_watts_today || liveW;
+        const monthCost = p.estimated_month_cost || 0;
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition cursor-pointer group" onclick="openModal('${p.id}')">
+            <!-- Name -->
+            <td class="py-3 px-3 font-sans font-medium text-white flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full ${isOn ? 'bg-emerald-400 live-dot' : 'bg-slate-600'}"></span>
+              <span class="group-hover:text-emerald-400 transition">${escapeHTML(p.name)}</span>
+            </td>
+            <!-- Category -->
+            <td class="py-3 px-3 font-sans">
+              <span class="px-2 py-0.5 rounded-full text-[11px] bg-slate-800 text-slate-400 border border-slate-700">
+                ${escapeHTML(p.category || 'General')}
+              </span>
+            </td>
+            <!-- Live Watts -->
+            <td class="py-3 px-3 text-right font-bold ${liveW > 0 ? 'text-emerald-400' : 'text-slate-500'}">
+              ${liveW.toFixed(1)} W
+            </td>
+            <!-- Peak Watts -->
+            <td class="py-3 px-3 text-right text-slate-300">
+              ${peakW.toFixed(1)} W
+            </td>
+            <!-- Today kWh -->
+            <td class="py-3 px-3 text-right text-slate-300">
+              ${r.energy_today_kwh.toFixed(3)}
+            </td>
+            <!-- Month kWh -->
+            <td class="py-3 px-3 text-right text-slate-300">
+              ${r.energy_month_kwh.toFixed(2)}
+            </td>
+            <!-- Monthly Cost -->
+            <td class="py-3 px-3 text-right font-semibold text-white">
+              ${currencySymbol}${monthCost.toFixed(2)}
+            </td>
+            <!-- Toggle Relay -->
+            <td class="py-3 px-3 text-center" onclick="event.stopPropagation()">
+              <button onclick="togglePlug('${p.id}', ${!isOn})" class="px-2.5 py-1 rounded-lg text-[11px] font-sans font-medium transition ${isOn ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700'}">
+                ${isOn ? 'ON' : 'OFF'}
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function getSortValue(p, col) {
+      const r = p.latest_reading || { power_watts: 0, energy_today_kwh: 0, energy_month_kwh: 0 };
+      switch (col) {
+        case 'name': return p.name.toLowerCase();
+        case 'category': return (p.category || '').toLowerCase();
+        case 'watts': return p.is_on ? r.power_watts : 0;
+        case 'peak': return p.peak_watts_today || 0;
+        case 'today': return r.energy_today_kwh || 0;
+        case 'month': return r.energy_month_kwh || 0;
+        case 'cost': return p.estimated_month_cost || 0;
+        default: return 0;
+      }
+    }
+
+    function sortTable(col) {
+      if (sortColumn === col) {
+        sortAsc = !sortAsc;
+      } else {
+        sortColumn = col;
+        sortAsc = false;
+      }
+      renderLeaderboard();
+    }
+
+    async function togglePlug(id, newState) {
       try {
         const res = await fetch(`/api/plugs/${id}/power`, {
           method: 'POST',
@@ -292,65 +495,123 @@
         if (res.ok) {
           await fetchPlugs();
           await fetchSummary();
+          if (selectedPlugId === id) {
+            updateModalData(id);
+          }
         }
       } catch (err) {
         console.error('Toggle error:', err);
-      } finally {
-        if (btn) btn.disabled = false;
       }
     }
 
-    function updateChartSelect(plugs) {
-      const select = document.getElementById('chart-plug-select');
-      const currentVal = select.value;
-      select.innerHTML = `<option value="all">All Sockets (Total)</option>` + 
-        plugs.map(p => `<option value="${p.id}">${escapeHTML(p.name)}</option>`).join('');
-      select.value = currentVal || 'all';
-    }
-
-    function initChart() {
-      const ctx = document.getElementById('powerChart').getContext('2d');
-      chartInstance = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: [],
-          datasets: [{
-            label: 'Power (Watts)',
-            data: [],
-            borderColor: '#10b981',
-            backgroundColor: 'rgba(16, 185, 129, 0.1)',
-            fill: true,
-            tension: 0.35,
-            borderWidth: 2,
-            pointRadius: 2,
-            pointHoverRadius: 5
-          }]
-        },
+    function initStackedChart() {
+      const ctx = document.getElementById('stackedChart').getContext('2d');
+      stackedChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: [], datasets: [] },
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          scales: {
+            x: {
+              stacked: true,
+              grid: { color: 'rgba(51, 65, 85, 0.2)' },
+              ticks: { color: '#64748b', font: { size: 11 } }
+            },
+            y: {
+              stacked: true,
+              grid: { color: 'rgba(51, 65, 85, 0.2)' },
+              ticks: { color: '#64748b', font: { size: 11 } },
+              title: {
+                display: true,
+                text: 'Power (Watts)',
+                color: '#94a3b8',
+                font: { size: 11 }
+              }
+            }
+          },
           plugins: {
-            legend: { display: false },
+            legend: {
+              position: 'bottom',
+              labels: { color: '#94a3b8', boxWidth: 12, font: { size: 11 } }
+            },
             tooltip: {
               backgroundColor: '#0f172a',
               borderColor: '#334155',
               borderWidth: 1,
               titleColor: '#94a3b8',
               bodyColor: '#f8fafc',
-              displayColors: false,
-              callbacks: {
-                label: (ctx) => `${ctx.parsed.y.toFixed(1)} Watts`
-              }
             }
-          },
+          }
+        }
+      });
+    }
+
+    async function loadBreakdownChart() {
+      try {
+        const res = await fetch(`/api/breakdown?range=${breakdownRange}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        stackedChartInstance.data.labels = data.labels;
+        stackedChartInstance.data.datasets = data.series.map(s => ({
+          label: s.label,
+          data: s.data,
+          backgroundColor: s.color,
+          borderRadius: 3
+        }));
+
+        stackedChartInstance.options.scales.y.title.text = (breakdownRange === 'month') ? 'Energy (kWh)' : 'Average Power (Watts)';
+        stackedChartInstance.update();
+      } catch (err) {
+        console.error('Failed to load breakdown:', err);
+      }
+    }
+
+    function setBreakdownRange(r) {
+      breakdownRange = r;
+      const btnToday = document.getElementById('btn-chart-today');
+      const btnMonth = document.getElementById('btn-chart-month');
+      if (r === 'today') {
+        btnToday.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnMonth.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+      } else {
+        btnMonth.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnToday.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+      }
+      loadBreakdownChart();
+    }
+
+    // Modal Handling
+    function initModalChart() {
+      const ctx = document.getElementById('modalTimelineChart').getContext('2d');
+      modalChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [{
+            label: 'Watts',
+            data: [],
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            fill: true,
+            tension: 0.3,
+            borderWidth: 2,
+            pointRadius: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
           scales: {
             x: {
-              grid: { color: 'rgba(51, 65, 85, 0.25)' },
-              ticks: { color: '#64748b', maxTicksLimit: 8, font: { size: 11 } }
+              grid: { color: 'rgba(51, 65, 85, 0.2)' },
+              ticks: { color: '#64748b', maxTicksLimit: 6, font: { size: 10 } }
             },
             y: {
-              grid: { color: 'rgba(51, 65, 85, 0.25)' },
-              ticks: { color: '#64748b', font: { size: 11 } },
+              grid: { color: 'rgba(51, 65, 85, 0.2)' },
+              ticks: { color: '#64748b', font: { size: 10 } },
               beginAtZero: true
             }
           }
@@ -358,41 +619,67 @@
       });
     }
 
-    async function loadChartData() {
-      const select = document.getElementById('chart-plug-select');
-      const plugId = select.value || 'all';
+    async function openModal(id) {
+      selectedPlugId = id;
+      document.getElementById('device-modal').classList.remove('hidden');
+      updateModalData(id);
+      loadModalTimeline(id);
+    }
 
+    function closeModal() {
+      document.getElementById('device-modal').classList.add('hidden');
+      selectedPlugId = null;
+    }
+
+    function updateModalData(id) {
+      const p = plugsData.find(x => x.id === id);
+      if (!p) return;
+
+      const r = p.latest_reading || { power_watts: 0 };
+      const isOn = p.is_on;
+      const liveW = isOn ? r.power_watts : 0;
+
+      document.getElementById('modal-name').textContent = p.name;
+      document.getElementById('modal-category').textContent = p.category || 'General';
+      document.getElementById('modal-model').textContent = p.model || 'P115';
+      document.getElementById('modal-ip').textContent = `${p.ip || 'LAN'} · Driver: ${p.driver_type.toUpperCase()}`;
+
+      document.getElementById('modal-live-watts').textContent = `${liveW.toFixed(1)} W`;
+      document.getElementById('modal-peak-watts').textContent = `${(p.peak_watts_today || liveW).toFixed(1)} W`;
+      document.getElementById('modal-runtime').textContent = `${(p.runtime_today_hours || 0).toFixed(1)} h`;
+      document.getElementById('modal-standby').textContent = `${(p.standby_watts || 0).toFixed(1)} W`;
+      document.getElementById('modal-standby-cost').textContent = `${currencySymbol}${(p.annual_standby_cost || 0).toFixed(2)} / yr`;
+
+      const btn = document.getElementById('modal-toggle-btn');
+      const text = document.getElementById('modal-toggle-text');
+      const dot = btn.querySelector('span');
+
+      text.textContent = isOn ? 'Turn OFF' : 'Turn ON';
+      if (isOn) {
+        btn.className = 'px-3 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30';
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+      } else {
+        btn.className = 'px-3 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700';
+        dot.className = 'w-2 h-2 rounded-full bg-slate-500';
+      }
+      btn.onclick = () => togglePlug(id, !isOn);
+    }
+
+    async function loadModalTimeline(id) {
       try {
-        const url = `/api/plugs/${plugId}/history?range=${currentRange}`;
-        const res = await fetch(url);
+        const res = await fetch(`/api/plugs/${id}/history?range=24h`);
         if (!res.ok) return;
         const points = await res.json();
 
-        const labels = points.map(pt => {
+        modalChartInstance.data.labels = points.map(pt => {
           const d = new Date(pt.timestamp);
           return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         });
-        const values = points.map(pt => pt.power_watts);
-
-        chartInstance.data.labels = labels;
-        chartInstance.data.datasets[0].data = values;
-        chartInstance.update();
+        modalChartInstance.data.datasets[0].data = points.map(pt => pt.power_watts);
+        modalChartInstance.update();
       } catch (err) {
-        console.error('Failed to load chart data:', err);
+        console.error('Modal timeline error:', err);
       }
-    }
-
-    function setChartRange(range) {
-      currentRange = range;
-      ['1h', '24h', '7d'].forEach(r => {
-        const btn = document.getElementById(`btn-range-${r}`);
-        if (r === range) {
-          btn.className = 'px-2.5 py-1 rounded-md text-emerald-400 bg-slate-700/80 font-medium';
-        } else {
-          btn.className = 'px-2.5 py-1 rounded-md text-slate-400 hover:text-white';
-        }
-      });
-      loadChartData();
     }
 
     function connectSSE() {
@@ -402,7 +689,7 @@
       const evtSource = new EventSource('/api/events');
 
       evtSource.onopen = () => {
-        dot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400';
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400 live-dot';
         text.textContent = 'Live SSE Connected';
       };
 
@@ -410,28 +697,28 @@
         try {
           const r = JSON.parse(e.data);
           
-          // Update card DOM directly without re-render
-          const wElem = document.getElementById(`watts-${r.plug_id}`);
-          const vElem = document.getElementById(`volts-${r.plug_id}`);
-          const cElem = document.getElementById(`current-${r.plug_id}`);
-          const ktElem = document.getElementById(`kwh-today-${r.plug_id}`);
-          const kmElem = document.getElementById(`kwh-month-${r.plug_id}`);
+          // Update in-memory plug
+          const p = plugsData.find(x => x.id === r.plug_id);
+          if (p) {
+            p.latest_reading = r;
+            if (r.power_watts > (p.peak_watts_today || 0)) {
+              p.peak_watts_today = r.power_watts;
+            }
+          }
 
-          if (wElem) wElem.textContent = r.power_watts.toFixed(1);
-          if (vElem) vElem.textContent = r.voltage_v.toFixed(0);
-          if (cElem) cElem.textContent = r.current_ma.toFixed(0);
-          if (ktElem) ktElem.textContent = `${r.energy_today_kwh.toFixed(3)} kWh`;
-          if (kmElem) kmElem.textContent = `${r.energy_month_kwh.toFixed(2)} kWh`;
-
-          // Recalculate top summary
+          // Refresh live views
+          renderLeaderboard();
           fetchSummary();
+          if (selectedPlugId === r.plug_id) {
+            updateModalData(r.plug_id);
+          }
         } catch (err) {
           console.error('SSE reading parse error:', err);
         }
       });
 
       evtSource.onerror = () => {
-        dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400';
         text.textContent = 'Reconnecting...';
       };
     }
@@ -442,9 +729,9 @@
       );
     }
 
-    // Auto-refresh chart every 30 seconds
+    // Auto-refresh stacked chart every 30 seconds
     setInterval(() => {
-      loadChartData();
+      loadBreakdownChart();
     }, 30000);
 
     window.addEventListener('DOMContentLoaded', init);

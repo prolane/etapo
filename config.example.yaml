@@ -38,6 +38,7 @@ plugs:
   - id: "living-room-tv"
     name: "Living Room TV & Console"
     model: "P115"
+    category: "Entertainment"  # Categories: Kitchen, Home Office, Entertainment, Utility, etc.
     type: "mock"               # Change to "tapo" for physical plug
     mock_profile: "tv"         # Profiles: tv, fridge, workstation, kettle, default
     ip: "192.168.1.50"
@@ -45,6 +46,7 @@ plugs:
   - id: "kitchen-fridge"
     name: "Kitchen Refrigerator"
     model: "P115"
+    category: "Kitchen"
     type: "mock"
     mock_profile: "fridge"
     ip: "192.168.1.51"
@@ -52,6 +54,7 @@ plugs:
   - id: "home-office-desk"
     name: "Workstation Desk"
     model: "P115"
+    category: "Home Office"
     type: "mock"
     mock_profile: "workstation"
     ip: "192.168.1.52"
@@ -59,6 +62,7 @@ plugs:
   - id: "kitchen-kettle"
     name: "Electric Kettle"
     model: "P115"
+    category: "Kitchen"
     type: "mock"
     mock_profile: "kettle"
     ip: "192.168.1.53"

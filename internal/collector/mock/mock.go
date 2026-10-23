@@ -87,8 +87,19 @@ func (d *Driver) GetEnergyUsage(ctx context.Context) (*models.EnergyUsage, error
 	voltage := 230.0 + (d.rng.Float64()*4.0 - 2.0) // 228V - 232V realistic EU mains
 
 	if !d.isOn {
-		// Standby draw when turned off
-		watts = 0.4 + d.rng.Float64()*0.4
+		// Standby / vampire power draw when turned off
+		switch d.profile {
+		case ProfileTV:
+			watts = 1.4 + d.rng.Float64()*0.3 // Standby LED, smart TV Wi-Fi chip
+		case ProfileWorkstation:
+			watts = 4.2 + d.rng.Float64()*0.8 // Docking station & sleeping monitors
+		case ProfileFridge:
+			watts = 0.5 + d.rng.Float64()*0.2
+		case ProfileKettle:
+			watts = 0.3 + d.rng.Float64()*0.1
+		default:
+			watts = 1.0 + d.rng.Float64()*0.4
+		}
 	} else {
 		switch d.profile {
 		case ProfileFridge:

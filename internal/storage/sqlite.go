@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -75,6 +76,7 @@ func (s *Storage) migrate() error {
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
 		model TEXT NOT NULL,
+		category TEXT DEFAULT 'General',
 		driver_type TEXT NOT NULL,
 		ip TEXT NOT NULL,
 		mac TEXT DEFAULT '',
@@ -99,8 +101,14 @@ func (s *Storage) migrate() error {
 	CREATE INDEX IF NOT EXISTS idx_readings_plug_ts ON energy_readings(plug_id, timestamp DESC);
 	CREATE INDEX IF NOT EXISTS idx_readings_ts ON energy_readings(timestamp DESC);
 	`
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Migration for existing databases that might not have category column yet
+	_, _ = s.db.Exec(`ALTER TABLE plugs ADD COLUMN category TEXT DEFAULT 'General';`)
+
+	return nil
 }
 
 // RecordReading appends an energy reading to the in-memory write buffer.
@@ -178,12 +186,17 @@ func (s *Storage) flushLoop() {
 
 // UpsertPlug inserts or updates plug metadata.
 func (s *Storage) UpsertPlug(ctx context.Context, p models.Plug) error {
+	if p.Category == "" {
+		p.Category = "General"
+	}
+
 	query := `
-	INSERT INTO plugs (id, name, model, driver_type, ip, mac, is_active, is_on, created_at, updated_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO plugs (id, name, model, category, driver_type, ip, mac, is_active, is_on, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		name = excluded.name,
 		model = excluded.model,
+		category = excluded.category,
 		driver_type = excluded.driver_type,
 		ip = excluded.ip,
 		is_active = excluded.is_active,
@@ -196,7 +209,7 @@ func (s *Storage) UpsertPlug(ctx context.Context, p models.Plug) error {
 	p.UpdatedAt = now
 
 	_, err := s.db.ExecContext(ctx, query,
-		p.ID, p.Name, p.Model, p.DriverType, p.IP, p.MAC, p.IsActive, p.IsOn, p.CreatedAt, p.UpdatedAt,
+		p.ID, p.Name, p.Model, p.Category, p.DriverType, p.IP, p.MAC, p.IsActive, p.IsOn, p.CreatedAt, p.UpdatedAt,
 	)
 	return err
 }
@@ -208,11 +221,11 @@ func (s *Storage) UpdatePlugState(ctx context.Context, id string, isOn bool) err
 	return err
 }
 
-// GetPlugs returns all configured plugs with their latest energy reading in a single query.
-func (s *Storage) GetPlugs(ctx context.Context) ([]models.PlugWithLatest, error) {
+// GetPlugs returns all configured plugs enriched with latest reading and homeowner analytics.
+func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64) ([]models.PlugWithLatest, error) {
 	query := `
 		SELECT 
-			p.id, p.name, p.model, p.driver_type, p.ip, p.mac, p.is_active, p.is_on, p.created_at, p.updated_at,
+			p.id, p.name, p.model, p.category, p.driver_type, p.ip, p.mac, p.is_active, p.is_on, p.created_at, p.updated_at,
 			r.id, r.timestamp, r.power_watts, r.voltage_v, r.current_ma, r.energy_today_kwh, r.energy_month_kwh
 		FROM plugs p
 		LEFT JOIN energy_readings r ON r.id = (
@@ -230,15 +243,17 @@ func (s *Storage) GetPlugs(ctx context.Context) ([]models.PlugWithLatest, error)
 	defer rows.Close()
 
 	var result []models.PlugWithLatest
+	midnightToday := time.Now().UTC().Truncate(24 * time.Hour)
+
 	for rows.Next() {
 		var p models.PlugWithLatest
-		var mac sql.NullString
+		var mac, category sql.NullString
 		var rID sql.NullInt64
 		var rTimestamp sql.NullTime
 		var rPower, rVoltage, rCurrent, rToday, rMonth sql.NullFloat64
 
 		err := rows.Scan(
-			&p.ID, &p.Name, &p.Model, &p.DriverType, &p.IP, &mac,
+			&p.ID, &p.Name, &p.Model, &category, &p.DriverType, &p.IP, &mac,
 			&p.IsActive, &p.IsOn, &p.CreatedAt, &p.UpdatedAt,
 			&rID, &rTimestamp, &rPower, &rVoltage, &rCurrent, &rToday, &rMonth,
 		)
@@ -246,6 +261,10 @@ func (s *Storage) GetPlugs(ctx context.Context) ([]models.PlugWithLatest, error)
 			return nil, err
 		}
 		p.MAC = mac.String
+		p.Category = category.String
+		if p.Category == "" {
+			p.Category = "General"
+		}
 
 		if rID.Valid {
 			p.LatestReading = &models.EnergyReading{
@@ -260,62 +279,93 @@ func (s *Storage) GetPlugs(ctx context.Context) ([]models.PlugWithLatest, error)
 			}
 		}
 
+		// Calculate Homeowner Analytics for this plug:
+		// 1. Peak power recorded today (Max W)
+		var peakToday, avgToday sql.NullFloat64
+		_ = s.db.QueryRowContext(ctx, `
+			SELECT MAX(power_watts), AVG(power_watts)
+			FROM energy_readings
+			WHERE plug_id = ? AND timestamp >= ?
+		`, p.ID, midnightToday).Scan(&peakToday, &avgToday)
+
+		if peakToday.Valid {
+			p.PeakWattsToday = math.Round(peakToday.Float64*10) / 10
+		} else if p.LatestReading != nil {
+			p.PeakWattsToday = p.LatestReading.PowerWatts
+		}
+
+		if avgToday.Valid {
+			p.AvgWattsToday = math.Round(avgToday.Float64*10) / 10
+		}
+
+		// 2. Standby/Vampire Load (lowest Watts recorded between 02:00 and 05:00 AM)
+		var standby sql.NullFloat64
+		_ = s.db.QueryRowContext(ctx, `
+			SELECT MIN(power_watts)
+			FROM energy_readings
+			WHERE plug_id = ? AND strftime('%H', timestamp) IN ('02', '03', '04') AND power_watts > 0.05
+		`, p.ID).Scan(&standby)
+
+		// Fallback if night data not yet available: lowest recorded active power over 24h
+		if !standby.Valid || standby.Float64 <= 0 {
+			_ = s.db.QueryRowContext(ctx, `
+				SELECT MIN(power_watts)
+				FROM energy_readings
+				WHERE plug_id = ? AND power_watts > 0.05 AND timestamp >= ?
+			`, p.ID, time.Now().UTC().Add(-24*time.Hour)).Scan(&standby)
+		}
+
+		if standby.Valid && standby.Float64 > 0 {
+			p.StandbyWatts = math.Round(standby.Float64*10) / 10
+		} else if p.LatestReading != nil && !p.IsOn {
+			p.StandbyWatts = math.Round(p.LatestReading.PowerWatts*10) / 10
+		} else if p.LatestReading != nil {
+			p.StandbyWatts = math.Round(math.Min(p.LatestReading.PowerWatts, 1.5)*10) / 10
+		}
+
+		// Annualized standby cost: StandbyWatts * 24 * 365.25 / 1000 * costPerKWh
+		p.AnnualStandbyCost = math.Round((p.StandbyWatts*24.0*365.25/1000.0*costPerKWh)*100) / 100
+
+		// 3. Estimated Monthly Cost: based on month energy so far, or extrapolated
+		if p.LatestReading != nil {
+			p.EstimatedMonthCost = math.Round((p.LatestReading.EnergyMonthKWh*costPerKWh)*100) / 100
+		}
+
+		// 4. Runtime today: approximate hours with power > 3.0 W
+		var activeCount, totalCount int
+		_ = s.db.QueryRowContext(ctx, `
+			SELECT 
+				COUNT(CASE WHEN power_watts > 3.0 THEN 1 END),
+				COUNT(*)
+			FROM energy_readings
+			WHERE plug_id = ? AND timestamp >= ?
+		`, p.ID, midnightToday).Scan(&activeCount, &totalCount)
+
+		if totalCount > 0 {
+			hoursSinceMidnight := time.Since(midnightToday).Hours()
+			if hoursSinceMidnight > 0 {
+				p.RuntimeTodayHours = math.Round((float64(activeCount)/float64(totalCount)*hoursSinceMidnight)*10) / 10
+			}
+		}
+
 		result = append(result, p)
 	}
 
 	return result, rows.Err()
 }
 
-// GetPlug returns a single plug with its latest telemetry.
-func (s *Storage) GetPlug(ctx context.Context, id string) (*models.PlugWithLatest, error) {
-	query := `
-		SELECT 
-			p.id, p.name, p.model, p.driver_type, p.ip, p.mac, p.is_active, p.is_on, p.created_at, p.updated_at,
-			r.id, r.timestamp, r.power_watts, r.voltage_v, r.current_ma, r.energy_today_kwh, r.energy_month_kwh
-		FROM plugs p
-		LEFT JOIN energy_readings r ON r.id = (
-			SELECT id FROM energy_readings 
-			WHERE plug_id = p.id 
-			ORDER BY timestamp DESC 
-			LIMIT 1
-		)
-		WHERE p.id = ?
-	`
-	row := s.db.QueryRowContext(ctx, query, id)
-
-	var p models.PlugWithLatest
-	var mac sql.NullString
-	var rID sql.NullInt64
-	var rTimestamp sql.NullTime
-	var rPower, rVoltage, rCurrent, rToday, rMonth sql.NullFloat64
-
-	err := row.Scan(
-		&p.ID, &p.Name, &p.Model, &p.DriverType, &p.IP, &mac,
-		&p.IsActive, &p.IsOn, &p.CreatedAt, &p.UpdatedAt,
-		&rID, &rTimestamp, &rPower, &rVoltage, &rCurrent, &rToday, &rMonth,
-	)
+// GetPlug returns a single plug with its latest telemetry and analytics.
+func (s *Storage) GetPlug(ctx context.Context, id string, costPerKWh float64) (*models.PlugWithLatest, error) {
+	plugs, err := s.GetPlugs(ctx, costPerKWh)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
 		return nil, err
 	}
-	p.MAC = mac.String
-
-	if rID.Valid {
-		p.LatestReading = &models.EnergyReading{
-			ID:             rID.Int64,
-			PlugID:         p.ID,
-			Timestamp:      rTimestamp.Time,
-			PowerWatts:     rPower.Float64,
-			VoltageV:       rVoltage.Float64,
-			CurrentMA:      rCurrent.Float64,
-			EnergyTodayKWh: rToday.Float64,
-			EnergyMonthKWh: rMonth.Float64,
+	for _, p := range plugs {
+		if p.ID == id {
+			return &p, nil
 		}
 	}
-
-	return &p, nil
+	return nil, nil
 }
 
 // GetLatestReading fetches the most recent reading for a given plug.
@@ -352,7 +402,6 @@ func (s *Storage) GetHistory(ctx context.Context, plugID string, since time.Time
 	var err error
 
 	if plugID == "all" || plugID == "" {
-		// Aggregate across all plugs grouped by rounded timestamp
 		rows, err = s.db.QueryContext(ctx, `
 			SELECT timestamp, SUM(power_watts) as total_power
 			FROM energy_readings
@@ -388,9 +437,9 @@ func (s *Storage) GetHistory(ctx context.Context, plugID string, since time.Time
 	return points, rows.Err()
 }
 
-// GetSummary returns top-level aggregated figures across all sockets.
+// GetSummary returns top-level aggregated figures across all sockets for the top KPI bar.
 func (s *Storage) GetSummary(ctx context.Context, currency string, costPerKWh float64) (*models.SystemSummary, error) {
-	plugs, err := s.GetPlugs(ctx)
+	plugs, err := s.GetPlugs(ctx, costPerKWh)
 	if err != nil {
 		return nil, err
 	}
@@ -410,11 +459,142 @@ func (s *Storage) GetSummary(ctx context.Context, currency string, costPerKWh fl
 			summary.TotalEnergyToday += p.LatestReading.EnergyTodayKWh
 			summary.TotalEnergyMonth += p.LatestReading.EnergyMonthKWh
 		}
+		summary.TotalStandbyWatts += p.StandbyWatts
+		summary.AnnualStandbyWaste += p.AnnualStandbyCost
 	}
 
-	summary.EstimatedCostDay = summary.TotalEnergyToday * costPerKWh
+	summary.TotalPowerWatts = math.Round(summary.TotalPowerWatts*10) / 10
+	summary.TotalEnergyToday = math.Round(summary.TotalEnergyToday*1000) / 1000
+	summary.TotalEnergyMonth = math.Round(summary.TotalEnergyMonth*100) / 100
+	summary.TotalStandbyWatts = math.Round(summary.TotalStandbyWatts*10) / 10
+	summary.AnnualStandbyWaste = math.Round(summary.AnnualStandbyWaste*100) / 100
+
+	// Live Burn Rate in €/hour: (Watts / 1000) * costPerKWh
+	summary.LiveBurnRatePerHour = math.Round(((summary.TotalPowerWatts/1000.0)*costPerKWh)*1000) / 1000
+	summary.TotalCostToday = math.Round((summary.TotalEnergyToday*costPerKWh)*100) / 100
+	summary.EstimatedCostMonth = math.Round((summary.TotalEnergyMonth*costPerKWh)*100) / 100
 
 	return summary, nil
+}
+
+// GetBreakdown returns stacked time-series data grouped by plug or category for charts.
+func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, costPerKWh float64) (*models.BreakdownResponse, error) {
+	plugs, err := s.GetPlugs(ctx, costPerKWh)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &models.BreakdownResponse{
+		Range:  rangeType,
+		Labels: make([]string, 0),
+		Series: make([]models.BreakdownSeries, 0),
+	}
+
+	// Distinct colors for chart series
+	colors := []string{
+		"#10b981", "#3b82f6", "#8b5cf6", "#f59e0b",
+		"#ec4899", "#06b6d4", "#84cc16", "#f97316",
+	}
+
+	if rangeType == "month" {
+		// Daily view for the current month
+		now := time.Now().UTC()
+		daysInMonth := now.Day()
+		startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+
+		for d := 1; d <= daysInMonth; d++ {
+			resp.Labels = append(resp.Labels, fmt.Sprintf("Day %d", d))
+		}
+
+		for idx, p := range plugs {
+			series := models.BreakdownSeries{
+				ID:    p.ID,
+				Label: p.Name,
+				Color: colors[idx%len(colors)],
+				Data:  make([]float64, daysInMonth),
+			}
+
+			// Query daily consumption for this plug
+			rows, qErr := s.db.QueryContext(ctx, `
+				SELECT strftime('%d', timestamp) as day_str, MAX(energy_today_kwh)
+				FROM energy_readings
+				WHERE plug_id = ? AND timestamp >= ?
+				GROUP BY day_str
+			`, p.ID, startOfMonth)
+
+			if qErr == nil {
+				for rows.Next() {
+					var dayStr string
+					var val float64
+					if err := rows.Scan(&dayStr, &val); err == nil {
+						var dayNum int
+						fmt.Sscanf(dayStr, "%d", &dayNum)
+						if dayNum >= 1 && dayNum <= daysInMonth {
+							series.Data[dayNum-1] = math.Round(val*100) / 100
+						}
+					}
+				}
+				rows.Close()
+			}
+
+			// If data is sparse in dev, fill current day with today's kWh
+			if p.LatestReading != nil && series.Data[daysInMonth-1] == 0 {
+				series.Data[daysInMonth-1] = math.Round(p.LatestReading.EnergyTodayKWh*100) / 100
+			}
+
+			resp.Series = append(resp.Series, series)
+		}
+
+	} else {
+		// Hourly view for today (00:00 to 23:00)
+		for h := 0; h < 24; h++ {
+			resp.Labels = append(resp.Labels, fmt.Sprintf("%02d:00", h))
+		}
+
+		midnight := time.Now().UTC().Truncate(24 * time.Hour)
+
+		for idx, p := range plugs {
+			series := models.BreakdownSeries{
+				ID:    p.ID,
+				Label: p.Name,
+				Color: colors[idx%len(colors)],
+				Data:  make([]float64, 24),
+			}
+
+			// Query average watts per hour slot today
+			rows, qErr := s.db.QueryContext(ctx, `
+				SELECT strftime('%H', timestamp) as hour_str, AVG(power_watts)
+				FROM energy_readings
+				WHERE plug_id = ? AND timestamp >= ?
+				GROUP BY hour_str
+			`, p.ID, midnight)
+
+			if qErr == nil {
+				for rows.Next() {
+					var hourStr string
+					var avgWatts float64
+					if err := rows.Scan(&hourStr, &avgWatts); err == nil {
+						var hNum int
+						fmt.Sscanf(hourStr, "%d", &hNum)
+						if hNum >= 0 && hNum < 24 {
+							series.Data[hNum] = math.Round(avgWatts*10) / 10
+						}
+					}
+				}
+				rows.Close()
+			}
+
+			// If current hour is 0 and we have a reading, populate current hour
+			currentHour := time.Now().UTC().Hour()
+			if p.LatestReading != nil && series.Data[currentHour] == 0 {
+				series.Data[currentHour] = math.Round(p.LatestReading.PowerWatts*10) / 10
+			}
+
+			resp.Series = append(resp.Series, series)
+		}
+	}
+
+	return resp, nil
 }
 
 // Close gracefully flushes the in-memory write buffer and closes the SQLite database.

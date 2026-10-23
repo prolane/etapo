@@ -83,10 +83,14 @@ func New(cfg *config.Config, store *storage.Storage, b Broadcaster) (*Collector,
 			ID:         pc.ID,
 			Name:       pc.Name,
 			Model:      pc.Model,
+			Category:   pc.Category,
 			DriverType: pc.Type,
 			IP:         pc.IP,
 			IsActive:   true,
 			IsOn:       true,
+		}
+		if p.Category == "" {
+			p.Category = "General"
 		}
 		if p.DriverType == "" {
 			p.DriverType = "mock"
