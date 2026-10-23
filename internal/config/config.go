@@ -30,10 +30,10 @@ type Config struct {
 	} `yaml:"server"`
 
 	Storage struct {
-		DBPath           string        `yaml:"db_path"`
-		FlushIntervalSec int           `yaml:"flush_interval_sec"`
-		MaxBufferSize    int           `yaml:"max_buffer_size"`
-		RetentionDays    int           `yaml:"retention_days"`
+		DBPath           string `yaml:"db_path"`
+		FlushIntervalSec int    `yaml:"flush_interval_sec"`
+		MaxBufferSize    int    `yaml:"max_buffer_size"`
+		RetentionDays    int    `yaml:"retention_days"`
 	} `yaml:"storage"`
 
 	Collector struct {

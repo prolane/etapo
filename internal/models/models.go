@@ -62,14 +62,14 @@ type PlugWithLatest struct {
 
 // SystemSummary provides top-level metrics across all sockets for the top KPI bar.
 type SystemSummary struct {
-	TotalPowerWatts     float64   `json:"total_power_watts"`      // Instantaneous total draw in Watts
-	LiveBurnRatePerHour float64   `json:"live_burn_rate_per_hour"`// Live burn rate (€/hour or $/hour)
-	TotalEnergyToday    float64   `json:"total_energy_today_kwh"` // Cumulative consumption today (kWh)
-	TotalCostToday      float64   `json:"total_cost_today"`       // Total cost accrued today (€)
-	TotalEnergyMonth    float64   `json:"total_energy_month_kwh"` // Cumulative consumption this month (kWh)
-	EstimatedCostMonth  float64   `json:"estimated_cost_month"`   // Projected monthly cost (€)
-	TotalStandbyWatts   float64   `json:"total_standby_watts"`    // Combined baseline standby load (W)
-	AnnualStandbyWaste  float64   `json:"annual_standby_waste"`   // Total household cost of standby per year (€)
+	TotalPowerWatts     float64   `json:"total_power_watts"`       // Instantaneous total draw in Watts
+	LiveBurnRatePerHour float64   `json:"live_burn_rate_per_hour"` // Live burn rate (€/hour or $/hour)
+	TotalEnergyToday    float64   `json:"total_energy_today_kwh"`  // Cumulative consumption today (kWh)
+	TotalCostToday      float64   `json:"total_cost_today"`        // Total cost accrued today (€)
+	TotalEnergyMonth    float64   `json:"total_energy_month_kwh"`  // Cumulative consumption this month (kWh)
+	EstimatedCostMonth  float64   `json:"estimated_cost_month"`    // Projected monthly cost (€)
+	TotalStandbyWatts   float64   `json:"total_standby_watts"`     // Combined baseline standby load (W)
+	AnnualStandbyWaste  float64   `json:"annual_standby_waste"`    // Total household cost of standby per year (€)
 	Currency            string    `json:"currency"`
 	ActivePlugsCount    int       `json:"active_plugs_count"`
 	TotalPlugsCount     int       `json:"total_plugs_count"`

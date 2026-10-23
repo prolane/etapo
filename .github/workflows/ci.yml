@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Vet, Format & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race ./...
+
+  build:
+    name: Cross-compile smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build all release targets
+        run: |
+          set -e
+          for TARGET in linux/arm64 linux/arm linux/amd64 darwin/arm64 darwin/amd64 windows/amd64; do
+            GOOS=${TARGET%/*}
+            GOARCH=${TARGET#*/}
+            echo "==> $GOOS/$GOARCH"
+            CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH GOARM=7 go build -o "$RUNNER_TEMP/etapo-$GOOS-$GOARCH" ./cmd/etapo
+          done
