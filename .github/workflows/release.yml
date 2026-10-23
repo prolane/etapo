@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build & Release Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          check-latest: true
+
+      - name: Extract Tag Version
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build Binaries and Package Archives
+        env:
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
+        run: |
+          mkdir -p dist/packages
+
+          # Platforms to build: OS/ARCH/EXT/NAME
+          PLATFORMS=(
+            "linux/arm64//etapo-linux-arm64"
+            "linux/arm/7//etapo-linux-armv7"
+            "linux/amd64//etapo-linux-amd64"
+            "darwin/arm64//etapo-darwin-arm64"
+            "darwin/amd64//etapo-darwin-amd64"
+            "windows/amd64/.exe/etapo-windows-amd64"
+          )
+
+          for PLATFORM in "${PLATFORMS[@]}"; do
+            IFS='/' read -r GOOS GOARCH GOARM EXT NAME <<< "$PLATFORM"
+            
+            OUTPUT_NAME="etapo${EXT}"
+            BUILD_DIR="build_${NAME}"
+            mkdir -p "$BUILD_DIR"
+
+            echo "Building for $GOOS/$GOARCH (ARM: $GOARM)..."
+            
+            if [ -n "$GOARM" ]; then
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH GOARM=$GOARM go build -ldflags="-s -w -X main.version=$VERSION" -o "$BUILD_DIR/$OUTPUT_NAME" ./cmd/etapo
+            else
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="-s -w -X main.version=$VERSION" -o "$BUILD_DIR/$OUTPUT_NAME" ./cmd/etapo
+            fi
+
+            # Include sample config and documentation
+            cp config.example.yaml "$BUILD_DIR/"
+            cp README.md "$BUILD_DIR/"
+            cp LICENSE "$BUILD_DIR/"
+
+            # Create archive
+            if [ "$GOOS" = "windows" ]; then
+              ARCHIVE="dist/packages/${NAME}-${VERSION}.zip"
+              (cd "$BUILD_DIR" && zip -r "../$ARCHIVE" .)
+            else
+              ARCHIVE="dist/packages/${NAME}-${VERSION}.tar.gz"
+              tar -czf "$ARCHIVE" -C "$BUILD_DIR" .
+            fi
+
+            rm -rf "$BUILD_DIR"
+          done
+
+          # Generate SHA256 Checksums
+          cd dist/packages
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/packages/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
