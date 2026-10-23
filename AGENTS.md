@@ -99,7 +99,7 @@ Prefer the `Makefile` targets (`make help` lists them): `make build`, `make run`
 - **Rule for AI agents:** Do NOT create or push a tag without explicit user confirmation. When unreleased commits exist on `main` that fix bugs or add features, ask the user whether to cut a new release and propose the next version number.
 - **Changelog:** `CHANGELOG.md` follows Keep a Changelog. Before tagging, move the `[Unreleased]` entries under a new `[X.Y.Z] - YYYY-MM-DD` heading and add a link-free entry per change.
 - **CI:** `.github/workflows/ci.yml` runs gofmt, vet, `go test -race` and a cross-compile check. The release workflow runs CI first and does not publish if it fails.
-- **Security:** `.github/workflows/security.yml` runs `govulncheck` on push, pull request and weekly. `.github/dependabot.yml` opens weekly update PRs for Go modules and GitHub Actions. Secret scanning and push protection are enabled in GitHub settings (not in a workflow).
+- **Security:** `.github/workflows/security.yml` runs `govulncheck` on push, pull request and weekly. `.github/dependabot.yml` opens weekly update PRs for Go modules and GitHub Actions. `.github/workflows/dependabot-auto-merge.yml` approves and auto-merges minor and patch updates once required checks pass; major updates need manual review. Secret scanning and push protection are enabled in GitHub settings (not in a workflow).
 - **Release steps (after confirmation):**
   ```bash
   git tag -a vX.Y.Z -m "Release vX.Y.Z: <summary>"
