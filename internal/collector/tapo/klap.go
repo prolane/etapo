@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -182,9 +183,7 @@ func (d *Driver) login(ctx context.Context) error {
 		return err
 	}
 
-	userHash := sha1Hash([]byte(d.username))
-	passHash := sha1Hash([]byte(d.password))
-	authHash := sha256Hash(append(userHash, passHash...))
+	authHash := sha256Hash(concat(sha1Hash([]byte(d.username)), sha1Hash([]byte(d.password))))
 
 	// Step 1: Handshake1
 	url1 := fmt.Sprintf("http://%s/app/handshake1", d.ip)
@@ -203,11 +202,16 @@ func (d *Driver) login(ctx context.Context) error {
 	}
 
 	respBody1, err := ioutil.ReadAll(resp1.Body)
-	if err != nil || len(respBody1) < 16 {
+	if err != nil || len(respBody1) != 48 {
 		return errors.New("invalid handshake1 response")
 	}
 
-	d.serverSeed = respBody1[:16]
+	remoteSeed := respBody1[:16]
+	serverHash := respBody1[16:]
+	if !bytes.Equal(sha256Hash(concat(d.localSeed, remoteSeed, authHash)), serverHash) {
+		return errors.New("handshake1 credentials mismatch: check Tapo account email and password")
+	}
+	d.serverSeed = remoteSeed
 
 	// Extract session cookie if present
 	for _, cookie := range resp1.Cookies() {
@@ -217,22 +221,15 @@ func (d *Driver) login(ctx context.Context) error {
 		}
 	}
 
-	// Compute session keys: key, iv, sig
-	keySeed := append([]byte("lsk"), d.localSeed...)
-	keySeed = append(keySeed, d.serverSeed...)
-	keySeed = append(keySeed, authHash...)
-	hash := sha256Hash(keySeed)
-	d.key = hash[:16]
-	d.iv = hash[16:]
-
-	sigSeed := append([]byte("ldk"), d.localSeed...)
-	sigSeed = append(sigSeed, d.serverSeed...)
-	sigSeed = append(sigSeed, authHash...)
-	d.sig = sha256Hash(sigSeed)
+	// Compute session keys: key, iv, sig, and starting sequence number
+	d.key = sha256Hash(concat([]byte("lsk"), d.localSeed, d.serverSeed, authHash))[:16]
+	ivSeed := sha256Hash(concat([]byte("iv"), d.localSeed, d.serverSeed, authHash))
+	d.iv = ivSeed[:12]
+	d.seq = int32(binary.BigEndian.Uint32(ivSeed[28:]))
+	d.sig = sha256Hash(concat([]byte("ldk"), d.localSeed, d.serverSeed, authHash))[:28]
 
 	// Step 2: Handshake2
-	handshake2Payload := sha256Hash(append(d.serverSeed, d.localSeed...))
-	handshake2Payload = append(handshake2Payload, authHash...)
+	handshake2Payload := sha256Hash(concat(d.serverSeed, d.localSeed, authHash))
 
 	url2 := fmt.Sprintf("http://%s/app/handshake2", d.ip)
 	req2, err := http.NewRequestWithContext(ctx, "POST", url2, bytes.NewReader(handshake2Payload))
@@ -253,7 +250,6 @@ func (d *Driver) login(ctx context.Context) error {
 		return fmt.Errorf("handshake2 returned HTTP %d", resp2.StatusCode)
 	}
 
-	d.seq = 0
 	d.isConnected = true
 	d.lastLogin = time.Now()
 	return nil
@@ -278,18 +274,18 @@ func (d *Driver) sendEncrypted(ctx context.Context, method string, params map[st
 		return nil, err
 	}
 
+	iv := concat(d.iv, int32ToBytes(d.seq))
+
 	// Pad and Encrypt with AES-CBC
-	encrypted, err := encryptAES(jsonBytes, d.key, d.iv)
+	encrypted, err := encryptAES(jsonBytes, d.key, iv)
 	if err != nil {
 		return nil, err
 	}
 
 	// Build KLAP signature
-	sigInput := append(d.sig, int32ToBytes(d.seq)...)
-	sigInput = append(sigInput, encrypted...)
-	reqSig := sha256Hash(sigInput)
+	reqSig := sha256Hash(concat(d.sig, int32ToBytes(d.seq), encrypted))
 
-	body := append(reqSig, encrypted...)
+	body := concat(reqSig, encrypted)
 
 	url := fmt.Sprintf("http://%s/app/request?seq=%d", d.ip, d.seq)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
@@ -321,7 +317,7 @@ func (d *Driver) sendEncrypted(ctx context.Context, method string, params map[st
 
 	// Skip 32-byte signature
 	encryptedResp := respBytes[32:]
-	decrypted, err := decryptAES(encryptedResp, d.key, d.iv)
+	decrypted, err := decryptAES(encryptedResp, d.key, iv)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt response: %w", err)
 	}
@@ -358,6 +354,14 @@ func int32ToBytes(n int32) []byte {
 		byte(n >> 8),
 		byte(n),
 	}
+}
+
+func concat(parts ...[]byte) []byte {
+	var out []byte
+	for _, p := range parts {
+		out = append(out, p...)
+	}
+	return out
 }
 
 func encryptAES(plain []byte, key, iv []byte) ([]byte, error) {
