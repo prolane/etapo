@@ -62,7 +62,37 @@ For in-depth architectural details and design rationale, see:
 
 ---
 
-## Quickstart (Local Development with Mock Data)
+## Pre-Built Binaries (Ready to Run)
+
+Pre-compiled standalone binaries are published for every release on GitHub. You do **not** need Go, Docker, or Node.js installed to run Etapo.
+
+👉 **Download latest binaries from [GitHub Releases](https://github.com/prolane/etapo/releases)**
+
+Available packages for each release:
+| Target Platform | Architecture | Archive |
+|---|---|---|
+| **Raspberry Pi 3 / 4 / 5 (64-bit)** | `linux-arm64` | `etapo-linux-arm64-v*.tar.gz` |
+| **Raspberry Pi (32-bit)** | `linux-armv7` | `etapo-linux-armv7-v*.tar.gz` |
+| **Synology NAS / Linux Server** | `linux-amd64` | `etapo-linux-amd64-v*.tar.gz` |
+| **macOS Apple Silicon (M1/M2/M3/M4)** | `darwin-arm64` | `etapo-darwin-arm64-v*.tar.gz` |
+| **macOS Intel** | `darwin-amd64` | `etapo-darwin-amd64-v*.tar.gz` |
+| **Windows PC** | `windows-amd64` | `etapo-windows-amd64-v*.zip` |
+
+### Quick Install (e.g. Raspberry Pi or Linux)
+```bash
+# 1. Download and extract the archive for your architecture
+tar -xzf etapo-linux-arm64-*.tar.gz
+
+# 2. Copy and customize configuration
+cp config.example.yaml config.yaml
+
+# 3. Run etapo
+./etapo run --config config.yaml
+```
+
+---
+
+## Quickstart (Building from Source)
 
 Run the application with the included mock profile configuration:
 
