@@ -70,6 +70,8 @@ TP-Link Tapo P110/P115 devices use the **KLAP** protocol (AES-128-CBC encryption
 
 ## 6. Build & Test Commands
 
+Prefer the `Makefile` targets (`make help` lists them): `make build`, `make run`, `make test`, `make lint`, `make cross`, `make ci`, `make clean`. The raw commands below are what the targets run.
+
 - **Run locally with mock data:**
   ```bash
   go run ./cmd/etapo run --config config.example.yaml
