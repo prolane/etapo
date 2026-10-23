@@ -86,3 +86,17 @@ TP-Link Tapo P110/P115 devices use the **KLAP** protocol (AES-128-CBC encryption
   ```bash
   go test -v ./...
   ```
+
+---
+
+## 7. Releases & Versioning
+
+- **Versioning:** Semantic versioning with `vMAJOR.MINOR.PATCH` tags (currently pre-1.0). Bug fixes bump PATCH, new features bump MINOR.
+- **Current version:** `v0.1.0` (latest tag on `origin`). Check with `git ls-remote --tags origin`.
+- **Release trigger:** Pushing a `v*` tag runs `.github/workflows/release.yml`, which cross-compiles all targets (linux arm64/armv7/amd64, darwin arm64/amd64, windows amd64), packages them with checksums, and publishes a GitHub Release.
+- **Rule for AI agents:** Do NOT create or push a tag without explicit user confirmation. When unreleased commits exist on `main` that fix bugs or add features, ask the user whether to cut a new release and propose the next version number.
+- **Release steps (after confirmation):**
+  ```bash
+  git tag -a vX.Y.Z -m "Release vX.Y.Z: <summary>"
+  git push origin vX.Y.Z
+  ```
