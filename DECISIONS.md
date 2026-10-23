@@ -73,3 +73,17 @@ This document tracks all foundational decisions for the `etapo` project, recordi
 - **Context:** A full React/Vue Node.js build pipeline adds complexity and deployment friction on an embedded system.
 - **Decision:** Use a clean, single-page UI built with vanilla JS and Tailwind (or minimal CSS) and Chart.js, embedded directly into the Go binary via `embed.FS`.
 - **Consequences:** Zero CPU overhead on the Pi for UI serving; visiting the web page downloads a lightweight single bundle (<100KB) and renders on the client browser. No Node.js required.
+
+---
+
+### ADR-006: SHA-1 Usage in the Tapo KLAP Driver (Protocol Requirement)
+
+- **Status:** Accepted
+- **Context:** The Tapo KLAP v2 handshake (`internal/collector/tapo/klap.go`) derives the authentication hash as `SHA-256(SHA-1(username) || SHA-1(password))`. Tapo devices verify this exact value during `handshake1` and `handshake2`. CodeQL flags the `sha1` call as a weak hashing algorithm (alert #4).
+- **Alternatives Considered:**
+  - *Use SHA-256 for the inner hashes:* Breaks login with every device that uses KLAP v2, since the device computes the hash with SHA-1.
+  - *Suppress the warning in code:* Hides the reason for the SHA-1 call from future readers. We document it here instead.
+- **Decision:** Keep SHA-1 for the inner username and password hashes, because the protocol requires it. SHA-1 is used only to build the protocol's login value. It is not used for storing or signing data, and the session keys are derived with SHA-256. The CodeQL alert is dismissed as a false positive with a reference to this ADR.
+- **Consequences:**
+  - Any change to the KLAP hashing must be checked against a real device, since the mock driver cannot verify it.
+  - If Tapo introduces a protocol version that does not need SHA-1, revisit this decision.
