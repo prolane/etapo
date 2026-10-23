@@ -94,24 +94,19 @@ func (d *Driver) GetEnergyUsage(ctx context.Context) (*models.EnergyUsage, error
 		return nil, fmt.Errorf("tapo get_energy_usage failed: %w", err)
 	}
 
+	return parseEnergyUsage(res), nil
+}
+
+func parseEnergyUsage(res map[string]interface{}) *models.EnergyUsage {
 	usage := &models.EnergyUsage{}
 
-	// Tapo P115 returns current_power in milliwatts (mW) or Watts depending on firmware
+	// Tapo API units: current_power in mW, voltage in mV, current in mA, energy in Wh
 	if p, ok := res["current_power"].(float64); ok {
-		if p > 10000 {
-			// Value in mW
-			usage.PowerWatts = p / 1000.0
-		} else {
-			usage.PowerWatts = p
-		}
+		usage.PowerWatts = p / 1000.0
 	}
 
 	if v, ok := res["voltage"].(float64); ok {
-		if v > 1000 {
-			usage.VoltageV = v / 1000.0
-		} else {
-			usage.VoltageV = v
-		}
+		usage.VoltageV = v / 1000.0
 	} else {
 		usage.VoltageV = 230.0 // Default mains estimate if unexposed
 	}
@@ -123,23 +118,14 @@ func (d *Driver) GetEnergyUsage(ctx context.Context) (*models.EnergyUsage, error
 	}
 
 	if today, ok := res["today_energy"].(float64); ok {
-		// Value often reported in Wh
-		if today > 100 {
-			usage.EnergyTodayKWh = today / 1000.0
-		} else {
-			usage.EnergyTodayKWh = today
-		}
+		usage.EnergyTodayKWh = today / 1000.0
 	}
 
 	if month, ok := res["month_energy"].(float64); ok {
-		if month > 100 {
-			usage.EnergyMonthKWh = month / 1000.0
-		} else {
-			usage.EnergyMonthKWh = month
-		}
+		usage.EnergyMonthKWh = month / 1000.0
 	}
 
-	return usage, nil
+	return usage
 }
 
 // SetPower turns the socket relay on or off.
