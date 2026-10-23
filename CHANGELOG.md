@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - The release workflow now runs the CI workflow first and only publishes binaries if it passes.
-- The release workflow and CI read the Go version from `go.mod`.
+- The release workflow and CI read the Go version from `go.mod`, which is now pinned to Go 1.27.
 
 ## [0.1.2] - 2026-10-23
 

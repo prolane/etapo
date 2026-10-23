@@ -20,7 +20,7 @@ This document provides context, design principles, and guidelines for AI agents 
 
 - **Architecture:** Read [`ARCHITECTURE.md`](file:///Users/gerard/git-repos/etapo/ARCHITECTURE.md) for module decomposition, data flow, and runtime modes.
 - **Decisions:** Read [`DECISIONS.md`](file:///Users/gerard/git-repos/etapo/DECISIONS.md) before making architectural changes.
-- **Go Version:** Go 1.17+ compatible.
+- **Go Version:** Go 1.27 (pinned in `go.mod`; CI and release workflows read it from there). Use the Homebrew install (`brew install go`), not the legacy `/usr/local/go`.
 
 ---
 
