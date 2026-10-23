@@ -30,54 +30,52 @@ jobs:
         env:
           VERSION: ${{ steps.get_version.outputs.VERSION }}
         run: |
+          set -e
           mkdir -p dist/packages
 
-          # Platforms to build: OS/ARCH/EXT/NAME
-          PLATFORMS=(
-            "linux/arm64//etapo-linux-arm64"
-            "linux/arm/7//etapo-linux-armv7"
-            "linux/amd64//etapo-linux-amd64"
-            "darwin/arm64//etapo-darwin-arm64"
-            "darwin/amd64//etapo-darwin-amd64"
-            "windows/amd64/.exe/etapo-windows-amd64"
+          # Format: GOOS:GOARCH:GOARM:PACKAGE_BASE_NAME:BINARY_NAME
+          TARGETS=(
+            "linux:arm64::etapo-linux-arm64:etapo"
+            "linux:arm:7:etapo-linux-armv7:etapo"
+            "linux:amd64::etapo-linux-amd64:etapo"
+            "darwin:arm64::etapo-darwin-arm64:etapo"
+            "darwin:amd64::etapo-darwin-amd64:etapo"
+            "windows:amd64::etapo-windows-amd64:etapo.exe"
           )
 
-          for PLATFORM in "${PLATFORMS[@]}"; do
-            IFS='/' read -r GOOS GOARCH GOARM EXT NAME <<< "$PLATFORM"
+          for TARGET in "${TARGETS[@]}"; do
+            IFS=':' read -r GOOS GOARCH GOARM PKG_NAME BIN_NAME <<< "$TARGET"
             
-            OUTPUT_NAME="etapo${EXT}"
-            BUILD_DIR="build_${NAME}"
+            BUILD_DIR="build_${PKG_NAME}"
             mkdir -p "$BUILD_DIR"
 
-            echo "Building for $GOOS/$GOARCH (ARM: $GOARM)..."
-            
+            echo "==> Building $PKG_NAME ($GOOS/$GOARCH GOARM=$GOARM)..."
+
             if [ -n "$GOARM" ]; then
-              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH GOARM=$GOARM go build -ldflags="-s -w -X main.version=$VERSION" -o "$BUILD_DIR/$OUTPUT_NAME" ./cmd/etapo
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH GOARM=$GOARM go build -ldflags="-s -w -X main.version=$VERSION" -o "$BUILD_DIR/$BIN_NAME" ./cmd/etapo
             else
-              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="-s -w -X main.version=$VERSION" -o "$BUILD_DIR/$OUTPUT_NAME" ./cmd/etapo
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="-s -w -X main.version=$VERSION" -o "$BUILD_DIR/$BIN_NAME" ./cmd/etapo
             fi
 
-            # Include sample config and documentation
             cp config.example.yaml "$BUILD_DIR/"
             cp README.md "$BUILD_DIR/"
             cp LICENSE "$BUILD_DIR/"
 
-            # Create archive
             if [ "$GOOS" = "windows" ]; then
-              ARCHIVE="dist/packages/${NAME}-${VERSION}.zip"
-              (cd "$BUILD_DIR" && zip -r "../$ARCHIVE" .)
+              ARCHIVE_PATH="$(pwd)/dist/packages/${PKG_NAME}-${VERSION}.zip"
+              (cd "$BUILD_DIR" && zip -r "$ARCHIVE_PATH" .)
             else
-              ARCHIVE="dist/packages/${NAME}-${VERSION}.tar.gz"
-              tar -czf "$ARCHIVE" -C "$BUILD_DIR" .
+              ARCHIVE_PATH="$(pwd)/dist/packages/${PKG_NAME}-${VERSION}.tar.gz"
+              tar -czf "$ARCHIVE_PATH" -C "$BUILD_DIR" .
             fi
 
             rm -rf "$BUILD_DIR"
           done
 
-          # Generate SHA256 Checksums
           cd dist/packages
           sha256sum * > checksums.txt
-          cat checksums.txt
+          echo "Generated packages:"
+          ls -lh
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
