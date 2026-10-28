@@ -87,7 +87,7 @@ tar -xzf etapo-linux-arm64-*.tar.gz
 cp config.example.yaml config.yaml
 
 # 3. Run etapo
-./etapo run --config config.yaml
+./etapo --config config.yaml
 ```
 
 ---
@@ -98,11 +98,25 @@ Run the application with the included mock profile configuration:
 
 ```bash
 # 1. Run directly with Go
-go run ./cmd/etapo run --config config.example.yaml
+go run ./cmd/etapo --config config.example.yaml
 
 # 2. Open dashboard in browser
 open http://localhost:8080
 ```
+
+---
+
+## Running Modes
+
+Flags must come before the mode, because Go stops parsing flags at the first positional argument. Usage: `etapo [--config FILE] [run|collect|serve]`
+
+| Mode | Command | What it runs |
+|---|---|---|
+| `run` (default) | `etapo --config config.yaml` | Collector, storage, API, and web UI in one process |
+| `collect` | `etapo --config config.yaml collect` | Collector and storage only (use when the API runs separately) |
+| `serve` | `etapo --config config.yaml serve` | Storage, API, and web UI only (reads data written by `collect`) |
+
+If `--config` points to a missing file, etapo falls back to `config.example.yaml` (mock devices) and prints a warning.
 
 ---
 
@@ -165,7 +179,7 @@ After=network.target
 Type=simple
 User=pi
 WorkingDirectory=/home/pi
-ExecStart=/home/pi/etapo run --config /home/pi/config.yaml
+ExecStart=/home/pi/etapo --config /home/pi/config.yaml
 Restart=always
 RestartSec=5
 LimitNOFILE=4096

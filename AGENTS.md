@@ -74,7 +74,7 @@ Prefer the `Makefile` targets (`make help` lists them): `make build`, `make run`
 
 - **Run locally with mock data:**
   ```bash
-  go run ./cmd/etapo run --config config.example.yaml
+  go run ./cmd/etapo --config config.example.yaml
   ```
 - **Cross-compile for Raspberry Pi 3 (64-bit):**
   ```bash

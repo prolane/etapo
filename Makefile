@@ -15,7 +15,7 @@ build: ## Build the binary for the local machine into bin/
 	$(GO) build -ldflags="$(LDFLAGS)" -o bin/$(BINARY) ./cmd/etapo
 
 run: ## Run locally with the example config (mock devices)
-	$(GO) run ./cmd/etapo run --config $(CONFIG)
+	$(GO) run ./cmd/etapo --config $(CONFIG) run
 
 test: ## Run all tests with the race detector
 	$(GO) test -race ./...
