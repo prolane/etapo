@@ -150,7 +150,9 @@ A missing config file is an error; etapo never falls back to the example config.
 
 ## Standby Baseline
 
-The standby (vampire load) figure for each socket is its average power inside a time window, using the server's local time zone. The dashboard shows it for the last night or the last 7 nights. The default window is 02:00 to 05:00. To change it, set `standby` in `config.yaml` and restart etapo:
+The standby (vampire load) figure for each socket is its average power inside a time window, using the server's local time zone. The dashboard opens on the last night; the "Last 7 nights" button shows the average over the last seven nights instead. The default window is 02:00 to 05:00.
+
+To change the window, add a `standby` section to `config.yaml` and restart etapo (times are `HH:MM`, 24-hour, local time):
 
 ```yaml
 standby:
@@ -158,7 +160,7 @@ standby:
   end: "05:00"
 ```
 
-An end earlier than the start wraps past midnight (for example 23:00 to 05:00). Until there are readings inside the window, the dashboard shows "No data" instead of a value.
+An end earlier than the start wraps past midnight (for example `start: "23:00"`, `end: "05:00"`). Until there are readings inside the window, the dashboard shows "No data" instead of a value.
 
 ---
 
@@ -224,6 +226,8 @@ sudo systemctl status etapo
 | `/api/plugs?nights=N` | `GET` | List all plugs with latest telemetry, on/off status and standby. `nights` as for `/api/summary` |
 | `/api/plugs/:id` | `GET` | Details for a specific plug |
 | `/api/plugs/:id/history?range=1h\|24h\|7d` | `GET` | Time-series data points for charting |
+| `/api/breakdown?range=today\|month&by=plug\|category` | `GET` | Consumption per hour (today) or per day (month) for the stacked chart. Pick a past period with `date=YYYY-MM-DD` (day) or `month=YYYY-MM` (month). Future periods return 400 |
+| `/api/leaderboard/month?month=YYYY-MM` | `GET` | Each plug's peak power, kWh and estimated cost for a calendar month. Defaults to the current month; future months return 400 |
 | `/api/plugs/:id/power` | `POST` | Toggle plug relay: `{"on": true\|false}` |
 | `/api/events` | `GET` | Server-Sent Events (SSE) real-time stream of socket readings |
 
@@ -233,4 +237,10 @@ sudo systemctl status etapo
 
 ```bash
 go test -v ./...
+```
+
+The end-to-end tests build the binary and run it against mock plugs, checking the API, dashboard, relay control, event stream, persistence across a restart and CLI handling:
+
+```bash
+make e2e
 ```
