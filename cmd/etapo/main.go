@@ -82,13 +82,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
-	defer func() {
-		log.Println("[Storage] Flushing pending writes and closing SQLite database...")
-		if err := store.Close(); err != nil {
-			log.Printf("Storage close error: %v", err)
-		}
-	}()
-
 	// 2. Setup Context for Graceful Shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -123,16 +116,26 @@ func main() {
 	// Await termination signal
 	sig := <-sigChan
 	log.Printf("[Etapo] Received signal %v, commencing graceful shutdown...", sig)
-	cancel()
+
+	// Stop in dependency order: API first (no new reads), then the collector
+	// (lets in-flight polls finish), then flush and close storage. The context
+	// is only cancelled after the collector has stopped, so polls are not aborted.
+	if srv != nil {
+		shutdownCtx, sCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("[API] Shutdown error: %v", err)
+		}
+		sCancel()
+	}
 
 	if col != nil {
 		col.Stop()
 	}
+	cancel()
 
-	if srv != nil {
-		shutdownCtx, sCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer sCancel()
-		_ = srv.Shutdown(shutdownCtx)
+	log.Println("[Storage] Flushing pending writes and closing SQLite database...")
+	if err := store.Close(); err != nil {
+		log.Printf("[Storage] Close error: %v", err)
 	}
 
 	log.Println("[Etapo] Exited cleanly.")

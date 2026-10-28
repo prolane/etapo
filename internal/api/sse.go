@@ -11,13 +11,20 @@ import (
 type SSEBroker struct {
 	clientsMu sync.RWMutex
 	clients   map[chan string]bool
+	closed    chan struct{}
 }
 
 // NewSSEBroker creates an SSE broadcaster.
 func NewSSEBroker() *SSEBroker {
 	return &SSEBroker{
 		clients: make(map[chan string]bool),
+		closed:  make(chan struct{}),
 	}
+}
+
+// Close ends all open SSE streams so the HTTP server can shut down without waiting for them.
+func (b *SSEBroker) Close() {
+	close(b.closed)
 }
 
 // Broadcast pushes an event string and data payload to all connected SSE clients.
@@ -75,6 +82,8 @@ func (b *SSEBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-notify:
+			return
+		case <-b.closed:
 			return
 		case msg, ok := <-clientChan:
 			if !ok {

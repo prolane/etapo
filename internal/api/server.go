@@ -71,8 +71,9 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Shutdown gracefully stops the HTTP server.
+// Shutdown gracefully stops the HTTP server, ending open SSE streams first.
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.broker.Close()
 	return s.srv.Shutdown(ctx)
 }
 
