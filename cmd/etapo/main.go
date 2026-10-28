@@ -29,6 +29,7 @@ func main() {
 	// Default fallback to config.example.yaml if config.yaml doesn't exist
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		if _, errEx := os.Stat("config.example.yaml"); errEx == nil {
+			log.Printf("[Etapo] WARNING: config %q not found, falling back to config.example.yaml (mock devices)", configPath)
 			configPath = "config.example.yaml"
 		}
 	}
