@@ -185,9 +185,16 @@
           <p class="text-xs text-slate-400">Click any row to open detailed diagnostics and history</p>
         </div>
 
-        <!-- Category Filter Chips -->
-        <div id="category-filters" class="flex flex-wrap items-center gap-1.5 text-xs">
-          <button onclick="filterCategory('All')" class="cat-chip px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium" data-cat="All">All</button>
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <!-- Period Toggle -->
+          <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs">
+            <button onclick="setLeaderboardPeriod('today')" id="btn-board-today" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Today</button>
+            <button onclick="setLeaderboardPeriod('month')" id="btn-board-month" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Month</button>
+          </div>
+          <!-- Category Filter Chips -->
+          <div id="category-filters" class="flex flex-wrap items-center gap-1.5 text-xs">
+            <button onclick="filterCategory('All')" class="cat-chip px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium" data-cat="All">All</button>
+          </div>
         </div>
       </div>
 
@@ -198,9 +205,9 @@
             <tr>
               <th class="py-3 px-3 cursor-pointer hover:text-white" onclick="sortTable('name')">Plug / Appliance ⇅</th>
               <th class="py-3 px-3 cursor-pointer hover:text-white" onclick="sortTable('category')">Category ⇅</th>
-              <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('watts')">Live Watts ⇅</th>
+              <th id="th-watts" class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('watts')">Live Watts ⇅</th>
               <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('peak')">Peak (Max W) ⇅</th>
-              <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('today')">Today (kWh) ⇅</th>
+              <th id="th-today" class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('today')">Today (kWh) ⇅</th>
               <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('month')">Month (kWh) ⇅</th>
               <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('cost')">Est. Month Cost ⇅</th>
               <th class="py-3 px-3 text-center">Relay</th>
@@ -295,6 +302,7 @@
     let breakdownDate = localDateString(new Date());
     let breakdownMonth = breakdownDate.slice(0, 7);
     let breakdownChartType = 'stacked';
+    let leaderboardPeriod = 'today';
     let stackedChartInstance = null;
     let modalChartInstance = null;
     let selectedPlugId = null;
@@ -439,11 +447,13 @@
         return sortAsc ? valA - valB : valB - valA;
       });
 
+      const isMonth = leaderboardPeriod === 'month';
+
       tbody.innerHTML = filtered.map(p => {
         const r = p.latest_reading || { power_watts: 0, energy_today_kwh: 0, energy_month_kwh: 0 };
         const isOn = p.is_on;
         const liveW = isOn ? r.power_watts : 0;
-        const peakW = p.peak_watts_today || liveW;
+        const peakW = (isMonth ? p.peak_watts_month : p.peak_watts_today) || liveW;
         const monthCost = p.estimated_month_cost || 0;
 
         return `
@@ -459,18 +469,20 @@
                 ${escapeHTML(p.category || 'General')}
               </span>
             </td>
+            ${isMonth ? '' : `
             <!-- Live Watts -->
             <td class="py-3 px-3 text-right font-bold ${liveW > 0 ? 'text-emerald-400' : 'text-slate-500'}">
               ${liveW.toFixed(1)} W
-            </td>
+            </td>`}
             <!-- Peak Watts -->
             <td class="py-3 px-3 text-right text-slate-300">
               ${peakW.toFixed(1)} W
             </td>
+            ${isMonth ? '' : `
             <!-- Today kWh -->
             <td class="py-3 px-3 text-right text-slate-300">
               ${r.energy_today_kwh.toFixed(3)}
-            </td>
+            </td>`}
             <!-- Month kWh -->
             <td class="py-3 px-3 text-right text-slate-300">
               ${r.energy_month_kwh.toFixed(2)}
@@ -496,12 +508,32 @@
         case 'name': return p.name.toLowerCase();
         case 'category': return (p.category || '').toLowerCase();
         case 'watts': return p.is_on ? r.power_watts : 0;
-        case 'peak': return p.peak_watts_today || 0;
+        case 'peak': return (leaderboardPeriod === 'month' ? p.peak_watts_month : p.peak_watts_today) || 0;
         case 'today': return r.energy_today_kwh || 0;
         case 'month': return r.energy_month_kwh || 0;
         case 'cost': return p.estimated_month_cost || 0;
         default: return 0;
       }
+    }
+
+    function setLeaderboardPeriod(period) {
+      leaderboardPeriod = period;
+      const btnToday = document.getElementById('btn-board-today');
+      const btnMonth = document.getElementById('btn-board-month');
+      if (period === 'month') {
+        btnMonth.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnToday.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+        if (sortColumn === 'watts' || sortColumn === 'today') {
+          sortColumn = 'month';
+          sortAsc = false;
+        }
+      } else {
+        btnToday.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnMonth.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+      }
+      document.getElementById('th-watts').classList.toggle('hidden', period === 'month');
+      document.getElementById('th-today').classList.toggle('hidden', period === 'month');
+      renderLeaderboard();
     }
 
     function sortTable(col) {
@@ -550,6 +582,7 @@
             },
             y: {
               stacked: !isLine,
+              beginAtZero: true,
               grid: { color: 'rgba(51, 65, 85, 0.2)' },
               ticks: { color: '#64748b', font: { size: 11 } },
               title: {
@@ -828,6 +861,9 @@
             p.latest_reading = r;
             if (r.power_watts > (p.peak_watts_today || 0)) {
               p.peak_watts_today = r.power_watts;
+            }
+            if (r.power_watts > (p.peak_watts_month || 0)) {
+              p.peak_watts_month = r.power_watts;
             }
           }
 
