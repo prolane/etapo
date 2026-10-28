@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Etapo — Smart Energy Intelligence</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%20%220%22%20100%20100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
@@ -45,10 +45,7 @@
         <span class="text-xl">⚡</span>
       </div>
       <div>
-        <h1 class="text-base font-bold tracking-tight text-white flex items-center gap-2">
-          Etapo
-          <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Raspberry Pi</span>
-        </h1>
+        <h1 class="text-base font-bold tracking-tight text-white">Etapo</h1>
         <p class="text-xs text-slate-400">Home Energy Intelligence & Standby Detector</p>
       </div>
     </div>
@@ -120,6 +117,7 @@
         <p class="text-xs text-slate-400 mt-1.5 font-medium">
           Waste: <span id="stat-annual-waste" class="text-purple-300 font-semibold">€0.00</span> / year
         </p>
+        <p id="stat-standby-note" class="hidden text-[11px] text-amber-400 mt-1">No readings from 02:00–05:00 yet</p>
       </div>
     </div>
 
@@ -129,15 +127,28 @@
         <div>
           <h2 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
             Energy Consumption Breakdown
-            <span class="text-xs font-normal text-slate-400">Stacked by device</span>
+            <span id="breakdown-subtitle" class="text-xs font-normal text-slate-400">Stacked by device</span>
           </h2>
           <p class="text-xs text-slate-500">Compare consumption distribution across plugs</p>
         </div>
-        <div class="flex items-center space-x-2">
-          <!-- Stacked Chart View Toggle -->
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Period Picker -->
+          <div class="flex items-center gap-1 text-xs">
+            <button onclick="stepBreakdown(-1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition" title="Previous">‹</button>
+            <input type="date" id="breakdown-date" onchange="setBreakdownPeriod(this.value)" class="px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
+            <input type="month" id="breakdown-month" onchange="setBreakdownPeriod(this.value)" class="hidden px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
+            <button id="btn-breakdown-next" onclick="stepBreakdown(1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40 disabled:hover:text-slate-300" title="Next">›</button>
+            <button id="btn-breakdown-now" onclick="resetBreakdown()" class="hidden px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition"></button>
+          </div>
+          <!-- Chart Range Toggle -->
           <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs">
-            <button onclick="setBreakdownRange('today')" id="btn-chart-today" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Today (Hourly W)</button>
+            <button onclick="setBreakdownRange('today')" id="btn-chart-day" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Day (Hourly W)</button>
             <button onclick="setBreakdownRange('month')" id="btn-chart-month" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Month (Daily kWh)</button>
+          </div>
+          <!-- Chart Type Toggle -->
+          <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs">
+            <button onclick="setBreakdownChartType('stacked')" id="btn-type-stacked" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Stacked</button>
+            <button onclick="setBreakdownChartType('line')" id="btn-type-line" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Lines</button>
           </div>
         </div>
       </div>
@@ -152,9 +163,14 @@
         <div>
           <h2 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
             <span>🧛 Standby Leak Detector & Vampire Load</span>
-            <span class="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-normal">02:00 – 05:00 AM Baseline</span>
+            <span id="standby-window-badge" class="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-normal">02:00 – 05:00 Baseline</span>
           </h2>
           <p class="text-xs text-slate-400">Detects silent phantom loads that drain money 24/7 while your household is asleep</p>
+        </div>
+        <!-- Standby Period Toggle -->
+        <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs self-start sm:self-auto">
+          <button onclick="setStandbyNights(1)" id="btn-standby-night" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Last night</button>
+          <button onclick="setStandbyNights(7)" id="btn-standby-week" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Last 7 nights</button>
         </div>
       </div>
 
@@ -174,9 +190,23 @@
           <p class="text-xs text-slate-400">Click any row to open detailed diagnostics and history</p>
         </div>
 
-        <!-- Category Filter Chips -->
-        <div id="category-filters" class="flex flex-wrap items-center gap-1.5 text-xs">
-          <button onclick="filterCategory('All')" class="cat-chip px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium" data-cat="All">All</button>
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <!-- Period Toggle -->
+          <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs">
+            <button onclick="setLeaderboardPeriod('today')" id="btn-board-today" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Today</button>
+            <button onclick="setLeaderboardPeriod('month')" id="btn-board-month" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Month</button>
+          </div>
+          <!-- Month Picker -->
+          <div id="leaderboard-month-picker" class="items-center gap-1 text-xs" style="display: none">
+            <button onclick="stepLeaderboardMonth(-1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition" title="Previous">‹</button>
+            <input type="month" id="leaderboard-month-input" onchange="setLeaderboardMonth(this.value)" class="px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
+            <button id="btn-leaderboard-next" onclick="stepLeaderboardMonth(1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40 disabled:hover:text-slate-300" title="Next">›</button>
+            <button id="btn-leaderboard-now" onclick="resetLeaderboardMonth()" class="hidden px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition">This month</button>
+          </div>
+          <!-- Category Filter Chips -->
+          <div id="category-filters" class="flex flex-wrap items-center gap-1.5 text-xs">
+            <button onclick="filterCategory('All')" class="cat-chip px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium" data-cat="All">All</button>
+          </div>
         </div>
       </div>
 
@@ -187,12 +217,11 @@
             <tr>
               <th class="py-3 px-3 cursor-pointer hover:text-white" onclick="sortTable('name')">Plug / Appliance ⇅</th>
               <th class="py-3 px-3 cursor-pointer hover:text-white" onclick="sortTable('category')">Category ⇅</th>
-              <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('watts')">Live Watts ⇅</th>
+              <th id="th-watts" class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('watts')">Live Watts ⇅</th>
               <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('peak')">Peak (Max W) ⇅</th>
-              <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('today')">Today (kWh) ⇅</th>
+              <th id="th-today" class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('today')">Today (kWh) ⇅</th>
               <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('month')">Month (kWh) ⇅</th>
               <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('cost')">Est. Month Cost ⇅</th>
-              <th class="py-3 px-3 text-center">Relay</th>
             </tr>
           </thead>
           <tbody id="leaderboard-body" class="divide-y divide-slate-800/60 font-mono text-slate-300">
@@ -281,6 +310,14 @@
     let sortAsc = false;
     let currencySymbol = '€';
     let breakdownRange = 'today';
+    let breakdownDate = localDateString(new Date());
+    let breakdownMonth = breakdownDate.slice(0, 7);
+    let breakdownChartType = 'stacked';
+    let leaderboardPeriod = 'today';
+    let leaderboardMonth = localDateString(new Date()).slice(0, 7);
+    let monthStats = {};
+    let standbyWindow = '02:00 – 05:00';
+    let standbyNights = 1;
     let stackedChartInstance = null;
     let modalChartInstance = null;
     let selectedPlugId = null;
@@ -290,6 +327,7 @@
     async function init() {
       initStackedChart();
       initModalChart();
+      updateBreakdownControls();
       await refreshAll();
       connectSSE();
     }
@@ -302,7 +340,7 @@
 
     async function fetchSummary() {
       try {
-        const res = await fetch('/api/summary');
+        const res = await fetch(`/api/summary?nights=${standbyNights}`);
         if (!res.ok) return;
         const data = await res.json();
 
@@ -313,8 +351,13 @@
         document.getElementById('stat-burn-rate').textContent = (data.live_burn_rate_per_hour || 0).toFixed(3);
         document.getElementById('stat-today-energy').textContent = (data.total_energy_today_kwh || 0).toFixed(2);
         document.getElementById('stat-today-cost').textContent = `${currencySymbol}${(data.total_cost_today || 0).toFixed(2)}`;
-        document.getElementById('stat-standby-watts').textContent = (data.total_standby_watts || 0).toFixed(1);
-        document.getElementById('stat-annual-waste').textContent = `${currencySymbol}${(data.annual_standby_waste || 0).toFixed(2)}`;
+        const hasStandby = data.standby_data_available;
+        document.getElementById('stat-standby-watts').textContent = hasStandby ? (data.total_standby_watts || 0).toFixed(1) : '–';
+        document.getElementById('stat-annual-waste').textContent = hasStandby ? `${currencySymbol}${(data.annual_standby_waste || 0).toFixed(2)}` : '–';
+        standbyWindow = `${data.standby_window_start} – ${data.standby_window_end}`;
+        document.getElementById('standby-window-badge').textContent = `${standbyWindow} Baseline`;
+        document.getElementById('stat-standby-note').textContent = noStandbyDataText();
+        document.getElementById('stat-standby-note').classList.toggle('hidden', hasStandby);
       } catch (err) {
         console.error('Failed to fetch summary:', err);
       }
@@ -322,7 +365,7 @@
 
     async function fetchPlugs() {
       try {
-        const res = await fetch('/api/plugs');
+        const res = await fetch(`/api/plugs?nights=${standbyNights}`);
         if (!res.ok) return;
         plugsData = await res.json();
 
@@ -360,30 +403,42 @@
       const sorted = [...plugsData].sort((a, b) => (b.annual_standby_cost || 0) - (a.annual_standby_cost || 0));
 
       grid.innerHTML = sorted.map(p => {
+        const hasData = p.has_standby_data;
         const standbyW = p.standby_watts || 0;
         const annualCost = p.annual_standby_cost || 0;
-        const isHigh = standbyW > 3.0;
+        const isHigh = hasData && standbyW > 3.0;
+
+        let badgeClass = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        let badgeText = 'Low Standby';
+        if (!hasData) {
+          badgeClass = 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
+          badgeText = 'No Night Data';
+        } else if (isHigh) {
+          badgeClass = 'bg-red-500/10 text-red-400 border border-red-500/20';
+          badgeText = 'High Standby';
+        }
 
         return `
           <div onclick="openModal('${p.id}')" class="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80 hover:border-purple-500/40 transition cursor-pointer group flex flex-col justify-between">
             <div>
               <div class="flex items-center justify-between">
                 <span class="text-xs font-bold text-white group-hover:text-purple-400 transition truncate">${escapeHTML(p.name)}</span>
-                <span class="text-[10px] px-1.5 py-0.5 rounded ${isHigh ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}">
-                  ${isHigh ? 'High Standby' : 'Low Standby'}
+                <span class="text-[10px] px-1.5 py-0.5 rounded ${badgeClass}">
+                  ${badgeText}
                 </span>
               </div>
               <p class="text-[11px] text-slate-500 mt-0.5">${escapeHTML(p.category || 'General')}</p>
+              ${hasData ? '' : `<p class="text-[11px] text-amber-400 mt-1">${noStandbyDataText()}</p>`}
             </div>
 
             <div class="mt-4 pt-3 border-t border-slate-800/60 flex items-end justify-between">
               <div>
                 <p class="text-[10px] uppercase text-slate-400">Night Baseline</p>
-                <p class="text-lg font-mono font-bold text-purple-400">${standbyW.toFixed(1)} <span class="text-xs">W</span></p>
+                <p class="text-lg font-mono font-bold text-purple-400">${hasData ? `${standbyW.toFixed(1)} <span class="text-xs">W</span>` : '<span class="text-sm text-slate-500">No data</span>'}</p>
               </div>
               <div class="text-right">
                 <p class="text-[10px] uppercase text-slate-400">Est. Year Cost</p>
-                <p class="text-sm font-mono font-bold text-white">${currencySymbol}${annualCost.toFixed(2)}</p>
+                <p class="text-sm font-mono font-bold text-white">${hasData ? `${currencySymbol}${annualCost.toFixed(2)}` : '–'}</p>
               </div>
             </div>
           </div>
@@ -410,12 +465,16 @@
         return sortAsc ? valA - valB : valB - valA;
       });
 
+      const isMonth = leaderboardPeriod === 'month';
+
       tbody.innerHTML = filtered.map(p => {
         const r = p.latest_reading || { power_watts: 0, energy_today_kwh: 0, energy_month_kwh: 0 };
         const isOn = p.is_on;
         const liveW = isOn ? r.power_watts : 0;
-        const peakW = p.peak_watts_today || liveW;
-        const monthCost = p.estimated_month_cost || 0;
+        const board = boardValues(p);
+        const peakW = isMonth ? board.peak : (board.peak || liveW);
+        const monthKwh = board.month;
+        const monthCost = board.cost;
 
         return `
           <tr class="hover:bg-slate-800/40 transition cursor-pointer group" onclick="openModal('${p.id}')">
@@ -430,35 +489,41 @@
                 ${escapeHTML(p.category || 'General')}
               </span>
             </td>
+            ${isMonth ? '' : `
             <!-- Live Watts -->
             <td class="py-3 px-3 text-right font-bold ${liveW > 0 ? 'text-emerald-400' : 'text-slate-500'}">
               ${liveW.toFixed(1)} W
-            </td>
+            </td>`}
             <!-- Peak Watts -->
             <td class="py-3 px-3 text-right text-slate-300">
               ${peakW.toFixed(1)} W
             </td>
+            ${isMonth ? '' : `
             <!-- Today kWh -->
             <td class="py-3 px-3 text-right text-slate-300">
               ${r.energy_today_kwh.toFixed(3)}
-            </td>
+            </td>`}
             <!-- Month kWh -->
             <td class="py-3 px-3 text-right text-slate-300">
-              ${r.energy_month_kwh.toFixed(2)}
+              ${monthKwh.toFixed(2)}
             </td>
             <!-- Monthly Cost -->
             <td class="py-3 px-3 text-right font-semibold text-white">
               ${currencySymbol}${monthCost.toFixed(2)}
             </td>
-            <!-- Toggle Relay -->
-            <td class="py-3 px-3 text-center" onclick="event.stopPropagation()">
-              <button onclick="togglePlug('${p.id}', ${!isOn})" class="px-2.5 py-1 rounded-lg text-[11px] font-sans font-medium transition ${isOn ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700'}">
-                ${isOn ? 'ON' : 'OFF'}
-              </button>
-            </td>
           </tr>
         `;
       }).join('');
+    }
+
+    // Peak, month kWh and cost for the leaderboard's current period
+    function boardValues(p) {
+      if (leaderboardPeriod === 'month') {
+        const ms = monthStats[p.id] || {};
+        return { peak: ms.peak_watts || 0, month: ms.energy_kwh || 0, cost: ms.estimated_cost || 0 };
+      }
+      const r = p.latest_reading || { energy_month_kwh: 0 };
+      return { peak: p.peak_watts_today || 0, month: r.energy_month_kwh || 0, cost: p.estimated_month_cost || 0 };
     }
 
     function getSortValue(p, col) {
@@ -467,12 +532,107 @@
         case 'name': return p.name.toLowerCase();
         case 'category': return (p.category || '').toLowerCase();
         case 'watts': return p.is_on ? r.power_watts : 0;
-        case 'peak': return p.peak_watts_today || 0;
+        case 'peak': return boardValues(p).peak;
         case 'today': return r.energy_today_kwh || 0;
-        case 'month': return r.energy_month_kwh || 0;
-        case 'cost': return p.estimated_month_cost || 0;
+        case 'month': return boardValues(p).month;
+        case 'cost': return boardValues(p).cost;
         default: return 0;
       }
+    }
+
+    function setStandbyNights(nights) {
+      standbyNights = nights;
+      const btnNight = document.getElementById('btn-standby-night');
+      const btnWeek = document.getElementById('btn-standby-week');
+      if (nights === 1) {
+        btnNight.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnWeek.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+      } else {
+        btnWeek.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnNight.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+      }
+      fetchSummary();
+      fetchPlugs();
+    }
+
+    function noStandbyDataText() {
+      const period = standbyNights === 1 ? 'the last night' : `the last ${standbyNights} nights`;
+      return `No readings from ${standbyWindow} in ${period}`;
+    }
+
+    function setLeaderboardPeriod(period) {
+      leaderboardPeriod = period;
+      const btnToday = document.getElementById('btn-board-today');
+      const btnMonth = document.getElementById('btn-board-month');
+      if (period === 'month') {
+        btnMonth.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnToday.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+        if (sortColumn === 'watts' || sortColumn === 'today') {
+          sortColumn = 'month';
+          sortAsc = false;
+        }
+      } else {
+        btnToday.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnMonth.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+      }
+      document.getElementById('th-watts').classList.toggle('hidden', period === 'month');
+      document.getElementById('th-today').classList.toggle('hidden', period === 'month');
+      document.getElementById('leaderboard-month-picker').style.display = period === 'month' ? 'flex' : 'none';
+      if (period === 'month') {
+        updateLeaderboardControls();
+        loadLeaderboardMonth();
+      } else {
+        renderLeaderboard();
+      }
+    }
+
+    async function loadLeaderboardMonth() {
+      try {
+        const res = await fetch(`/api/leaderboard/month?month=${leaderboardMonth}`);
+        if (!res.ok) return;
+        const rows = await res.json();
+        monthStats = Object.fromEntries(rows.map(ms => [ms.plug_id, ms]));
+        renderLeaderboard();
+      } catch (err) {
+        console.error('Failed to load month leaderboard:', err);
+      }
+    }
+
+    function setLeaderboardMonth(value) {
+      if (!value) return;
+      leaderboardMonth = value;
+      clampLeaderboardMonth();
+      updateLeaderboardControls();
+      loadLeaderboardMonth();
+    }
+
+    function stepLeaderboardMonth(delta) {
+      const [y, m] = leaderboardMonth.split('-').map(Number);
+      leaderboardMonth = localDateString(new Date(y, m - 1 + delta, 1)).slice(0, 7);
+      clampLeaderboardMonth();
+      updateLeaderboardControls();
+      loadLeaderboardMonth();
+    }
+
+    function resetLeaderboardMonth() {
+      leaderboardMonth = localDateString(new Date()).slice(0, 7);
+      updateLeaderboardControls();
+      loadLeaderboardMonth();
+    }
+
+    function clampLeaderboardMonth() {
+      const current = localDateString(new Date()).slice(0, 7);
+      if (leaderboardMonth > current) leaderboardMonth = current;
+    }
+
+    function updateLeaderboardControls() {
+      const current = localDateString(new Date()).slice(0, 7);
+      const atCurrent = leaderboardMonth === current;
+      const input = document.getElementById('leaderboard-month-input');
+      input.value = leaderboardMonth;
+      input.max = current;
+      document.getElementById('btn-leaderboard-next').disabled = atCurrent;
+      document.getElementById('btn-leaderboard-now').classList.toggle('hidden', atCurrent);
     }
 
     function sortTable(col) {
@@ -506,20 +666,22 @@
 
     function initStackedChart() {
       const ctx = document.getElementById('stackedChart').getContext('2d');
+      const isLine = breakdownChartType === 'line';
       stackedChartInstance = new Chart(ctx, {
-        type: 'bar',
+        type: isLine ? 'line' : 'bar',
         data: { labels: [], datasets: [] },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           scales: {
             x: {
-              stacked: true,
+              stacked: !isLine,
               grid: { color: 'rgba(51, 65, 85, 0.2)' },
               ticks: { color: '#64748b', font: { size: 11 } }
             },
             y: {
-              stacked: true,
+              stacked: !isLine,
+              beginAtZero: true,
               grid: { color: 'rgba(51, 65, 85, 0.2)' },
               ticks: { color: '#64748b', font: { size: 11 } },
               title: {
@@ -549,17 +711,30 @@
 
     async function loadBreakdownChart() {
       try {
-        const res = await fetch(`/api/breakdown?range=${breakdownRange}`);
+        const period = breakdownRange === 'month'
+          ? `range=month&month=${breakdownMonth}`
+          : `range=today&date=${breakdownDate}`;
+        const res = await fetch(`/api/breakdown?${period}`);
         if (!res.ok) return;
         const data = await res.json();
 
         stackedChartInstance.data.labels = data.labels;
-        stackedChartInstance.data.datasets = data.series.map(s => ({
+        const isLine = breakdownChartType === 'line';
+        stackedChartInstance.data.datasets = data.series.map(s => isLine ? {
+          label: s.label,
+          data: s.data,
+          borderColor: s.color,
+          backgroundColor: s.color,
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.3,
+          fill: false
+        } : {
           label: s.label,
           data: s.data,
           backgroundColor: s.color,
           borderRadius: 3
-        }));
+        });
 
         stackedChartInstance.options.scales.y.title.text = (breakdownRange === 'month') ? 'Energy (kWh)' : 'Average Power (Watts)';
         stackedChartInstance.update();
@@ -570,16 +745,98 @@
 
     function setBreakdownRange(r) {
       breakdownRange = r;
-      const btnToday = document.getElementById('btn-chart-today');
+      const btnDay = document.getElementById('btn-chart-day');
       const btnMonth = document.getElementById('btn-chart-month');
       if (r === 'today') {
-        btnToday.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnDay.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
         btnMonth.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
       } else {
         btnMonth.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
-        btnToday.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+        btnDay.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
       }
+      updateBreakdownControls();
       loadBreakdownChart();
+    }
+
+    function setBreakdownChartType(t) {
+      breakdownChartType = t;
+      const btnStacked = document.getElementById('btn-type-stacked');
+      const btnLine = document.getElementById('btn-type-line');
+      if (t === 'line') {
+        btnLine.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnStacked.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+      } else {
+        btnStacked.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnLine.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+      }
+      document.getElementById('breakdown-subtitle').textContent = t === 'line' ? 'One line per device' : 'Stacked by device';
+      stackedChartInstance.destroy();
+      initStackedChart();
+      loadBreakdownChart();
+    }
+
+    function localDateString(d) {
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+
+    function setBreakdownPeriod(value) {
+      if (!value) return;
+      if (breakdownRange === 'month') {
+        breakdownMonth = value;
+      } else {
+        breakdownDate = value;
+      }
+      clampBreakdownPeriod();
+      updateBreakdownControls();
+      loadBreakdownChart();
+    }
+
+    function stepBreakdown(delta) {
+      if (breakdownRange === 'month') {
+        const [y, m] = breakdownMonth.split('-').map(Number);
+        breakdownMonth = localDateString(new Date(y, m - 1 + delta, 1)).slice(0, 7);
+      } else {
+        const [y, m, d] = breakdownDate.split('-').map(Number);
+        breakdownDate = localDateString(new Date(y, m - 1, d + delta));
+      }
+      clampBreakdownPeriod();
+      updateBreakdownControls();
+      loadBreakdownChart();
+    }
+
+    function resetBreakdown() {
+      const today = localDateString(new Date());
+      breakdownDate = today;
+      breakdownMonth = today.slice(0, 7);
+      updateBreakdownControls();
+      loadBreakdownChart();
+    }
+
+    function clampBreakdownPeriod() {
+      const today = localDateString(new Date());
+      if (breakdownDate > today) breakdownDate = today;
+      if (breakdownMonth > today.slice(0, 7)) breakdownMonth = today.slice(0, 7);
+    }
+
+    function updateBreakdownControls() {
+      const today = localDateString(new Date());
+      const isMonth = breakdownRange === 'month';
+      const atCurrent = isMonth ? breakdownMonth === today.slice(0, 7) : breakdownDate === today;
+
+      const dayInput = document.getElementById('breakdown-date');
+      const monthInput = document.getElementById('breakdown-month');
+      dayInput.classList.toggle('hidden', isMonth);
+      monthInput.classList.toggle('hidden', !isMonth);
+      dayInput.value = breakdownDate;
+      dayInput.max = today;
+      monthInput.value = breakdownMonth;
+      monthInput.max = today.slice(0, 7);
+
+      document.getElementById('btn-breakdown-next').disabled = atCurrent;
+      const btnNow = document.getElementById('btn-breakdown-now');
+      btnNow.classList.toggle('hidden', atCurrent);
+      btnNow.textContent = isMonth ? 'This month' : 'Today';
     }
 
     // Modal Handling
@@ -647,8 +904,8 @@
       document.getElementById('modal-live-watts').textContent = `${liveW.toFixed(1)} W`;
       document.getElementById('modal-peak-watts').textContent = `${(p.peak_watts_today || liveW).toFixed(1)} W`;
       document.getElementById('modal-runtime').textContent = `${(p.runtime_today_hours || 0).toFixed(1)} h`;
-      document.getElementById('modal-standby').textContent = `${(p.standby_watts || 0).toFixed(1)} W`;
-      document.getElementById('modal-standby-cost').textContent = `${currencySymbol}${(p.annual_standby_cost || 0).toFixed(2)} / yr`;
+      document.getElementById('modal-standby').textContent = p.has_standby_data ? `${(p.standby_watts || 0).toFixed(1)} W` : 'No data';
+      document.getElementById('modal-standby-cost').textContent = p.has_standby_data ? `${currencySymbol}${(p.annual_standby_cost || 0).toFixed(2)} / yr` : noStandbyDataText();
 
       const btn = document.getElementById('modal-toggle-btn');
       const text = document.getElementById('modal-toggle-text');
@@ -732,6 +989,7 @@
     // Auto-refresh stacked chart every 30 seconds
     setInterval(() => {
       loadBreakdownChart();
+      if (leaderboardPeriod === 'month') loadLeaderboardMonth();
     }, 30000);
 
     window.addEventListener('DOMContentLoaded', init);

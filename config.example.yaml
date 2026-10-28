@@ -25,6 +25,13 @@ billing:
   # Cost per kWh to calculate real-time estimated energy expense
   cost_per_kwh: 0.32
 
+# Standby baseline window (local time, HH:MM). The dashboard shows the average power
+# inside this window for the last night or the last 7 nights. An end earlier than
+# the start wraps past midnight.
+standby:
+  start: "02:00"
+  end: "05:00"
+
 # Tapo account credentials (used when type is "tapo")
 # Can also be specified via environment variables: TAPO_USERNAME and TAPO_PASSWORD
 tapo_auth:

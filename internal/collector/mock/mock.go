@@ -2,6 +2,8 @@ package mock
 
 import (
 	"context"
+	"fmt"
+	"hash/fnv"
 	"math"
 	"math/rand"
 	"sync"
@@ -57,6 +59,14 @@ func NewDriver(id, name, model string, profile Profile) *Driver {
 	}
 }
 
+// mac derives a stable MAC address from the plug ID, in the device's upper-case dash-separated format.
+func (d *Driver) mac() string {
+	h := fnv.New32a()
+	h.Write([]byte(d.id))
+	sum := h.Sum32()
+	return fmt.Sprintf("60-15-6F-%02X-%02X-%02X", byte(sum>>16), byte(sum>>8), byte(sum))
+}
+
 func (d *Driver) GetInfo(ctx context.Context) (*models.DeviceInfo, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -65,7 +75,7 @@ func (d *Driver) GetInfo(ctx context.Context) (*models.DeviceInfo, error) {
 		ID:       d.id,
 		Nickname: d.name,
 		Model:    d.model,
-		MAC:      "50:C7:BF:" + d.id[:2] + ":AA:11",
+		MAC:      d.mac(),
 		IsOn:     d.isOn,
 		RSSI:     -55 - d.rng.Intn(15),
 	}, nil
@@ -80,11 +90,19 @@ func (d *Driver) GetEnergyUsage(ctx context.Context) (*models.EnergyUsage, error
 	if elapsedSeconds <= 0 {
 		elapsedSeconds = 1
 	}
+	// Like the device, the daily and monthly counters restart at local midnight and month start
+	if now.YearDay() != d.lastPoll.YearDay() || now.Year() != d.lastPoll.Year() {
+		d.energyToday = 0
+	}
+	if now.Month() != d.lastPoll.Month() || now.Year() != d.lastPoll.Year() {
+		d.energyMonth = 0
+	}
 	d.lastPoll = now
 	d.cycleTick++
 
 	var watts float64
-	voltage := 230.0 + (d.rng.Float64()*4.0 - 2.0) // 228V - 232V realistic EU mains
+	// The P115 does not report voltage, so the driver reports the 230 V mains estimate
+	voltage := 230.0
 
 	if !d.isOn {
 		// Standby / vampire power draw when turned off

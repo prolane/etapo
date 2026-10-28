@@ -4,6 +4,7 @@ name: Dependabot auto-merge
 # This workflow never checks out or runs code from the PR.
 on:
   pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
 
 permissions:
   contents: write
@@ -11,27 +12,14 @@ permissions:
 
 jobs:
   auto-merge:
-    name: Auto-merge minor and patch updates
+    name: Auto-merge Dependabot updates
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch Dependabot metadata
-        id: metadata
-        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Approve and enable auto-merge for minor and patch updates
-        if: steps.metadata.outputs.update-type != 'version-update:semver-major' || steps.metadata.outputs.package-ecosystem == 'github_actions'
+      - name: Approve and enable auto-merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
           gh pr review --approve "$PR_URL"
           gh pr merge --auto --squash "$PR_URL"
-
-      - name: Major update needs manual review
-        if: steps.metadata.outputs.update-type == 'version-update:semver-major' && steps.metadata.outputs.package-ecosystem != 'github_actions'
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: echo "Major update for $PR_URL requires manual review."

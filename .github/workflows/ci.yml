@@ -38,6 +38,21 @@ jobs:
       - name: Test
         run: go test -race ./...
 
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
+      - name: Run end-to-end tests against mock plugs
+        run: go test -tags e2e -race -count=1 -v ./e2e/
+
   build:
     name: Cross-compile smoke test
     runs-on: ubuntu-latest

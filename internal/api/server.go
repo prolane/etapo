@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +44,7 @@ func NewServer(cfg *config.Config, store *storage.Storage, col *collector.Collec
 	mux.HandleFunc("/api/plugs/", s.handlePlugSubroutes)
 	mux.HandleFunc("/api/summary", s.handleSummary)
 	mux.HandleFunc("/api/breakdown", s.handleBreakdown)
+	mux.HandleFunc("/api/leaderboard/month", s.handleMonthLeaderboard)
 	mux.Handle("/api/events", broker)
 	mux.HandleFunc("/health", s.handleHealth)
 
@@ -71,8 +73,9 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Shutdown gracefully stops the HTTP server.
+// Shutdown gracefully stops the HTTP server, ending open SSE streams first.
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.broker.Close()
 	return s.srv.Shutdown(ctx)
 }
 
@@ -86,7 +89,13 @@ func (s *Server) handlePlugs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plugs, err := s.storage.GetPlugs(r.Context(), s.cfg.Billing.CostPerKWh)
+	standby, err := s.standbyPeriod(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	plugs, err := s.storage.GetPlugs(r.Context(), s.cfg.Billing.CostPerKWh, standby)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -110,13 +119,77 @@ func (s *Server) handleBreakdown(w http.ResponseWriter, r *http.Request) {
 		byParam = "plug"
 	}
 
-	breakdown, err := s.storage.GetBreakdown(r.Context(), rangeParam, byParam, s.cfg.Billing.CostPerKWh)
+	start, err := periodStart(r, rangeParam)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	standby, err := s.standbyPeriod(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	breakdown, err := s.storage.GetBreakdown(r.Context(), rangeParam, byParam, start, s.cfg.Billing.CostPerKWh, standby)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	writeJSON(w, http.StatusOK, breakdown)
+}
+
+func (s *Server) handleMonthLeaderboard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	start, err := periodStart(r, "month")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	stats, err := s.storage.GetMonthStats(r.Context(), start, s.cfg.Billing.CostPerKWh)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if stats == nil {
+		stats = []models.MonthStats{}
+	}
+
+	writeJSON(w, http.StatusOK, stats)
+}
+
+// periodStart returns the first moment of the requested local day (date=YYYY-MM-DD)
+// or month (month=YYYY-MM). Without a parameter it is the current day or month.
+func periodStart(r *http.Request, rangeParam string) (time.Time, error) {
+	now := time.Now()
+	start := now
+
+	if rangeParam == "month" {
+		if v := r.URL.Query().Get("month"); v != "" {
+			t, err := time.ParseInLocation("2006-01", v, time.Local)
+			if err != nil {
+				return time.Time{}, fmt.Errorf("month must be formatted as YYYY-MM")
+			}
+			start = t
+		}
+	} else if v := r.URL.Query().Get("date"); v != "" {
+		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("date must be formatted as YYYY-MM-DD")
+		}
+		start = t
+	}
+
+	if start.After(now) {
+		return time.Time{}, fmt.Errorf("cannot show a day or month that has not started yet")
+	}
+	return start, nil
 }
 
 func (s *Server) handlePlugSubroutes(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +204,13 @@ func (s *Server) handlePlugSubroutes(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		plug, err := s.storage.GetPlug(r.Context(), plugID, s.cfg.Billing.CostPerKWh)
+		standby, err := s.standbyPeriod(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		plug, err := s.storage.GetPlug(r.Context(), plugID, s.cfg.Billing.CostPerKWh, standby)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -225,13 +304,38 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	summary, err := s.storage.GetSummary(r.Context(), s.cfg.Billing.Currency, s.cfg.Billing.CostPerKWh)
+	standby, err := s.standbyPeriod(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	summary, err := s.storage.GetSummary(r.Context(), s.cfg.Billing.Currency, s.cfg.Billing.CostPerKWh, standby)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	summary.StandbyWindowStart = s.cfg.Standby.Start
+	summary.StandbyWindowEnd = s.cfg.Standby.End
 
 	writeJSON(w, http.StatusOK, summary)
+}
+
+// standbyPeriod returns the configured standby window and the number of nights from ?nights=N (default 7).
+func (s *Server) standbyPeriod(r *http.Request) (models.StandbyPeriod, error) {
+	start, end, err := s.cfg.StandbyMinutes()
+	if err != nil {
+		return models.StandbyPeriod{}, err
+	}
+	nights := 7
+	if v := r.URL.Query().Get("nights"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 365 {
+			return models.StandbyPeriod{}, fmt.Errorf("nights must be a whole number from 1 to 365")
+		}
+		nights = n
+	}
+	return models.StandbyPeriod{StartMinute: start, EndMinute: end, Nights: nights}, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

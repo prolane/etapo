@@ -4,6 +4,14 @@ on:
   push:
     tags:
       - 'v*'
+  # Called by auto-tag.yml after it creates a tag, because tags pushed with
+  # GITHUB_TOKEN do not start other workflows.
+  workflow_call:
+    inputs:
+      version:
+        description: Tag to build and publish, for example v1.2.3
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -20,6 +28,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.version || github.ref_name }}
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -28,7 +38,9 @@ jobs:
 
       - name: Extract Tag Version
         id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        env:
+          TAG: ${{ inputs.version || github.ref_name }}
+        run: echo "VERSION=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Build Binaries and Package Archives
         env:

@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 	"net/http"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"etapo/internal/models"
 )
@@ -66,7 +68,7 @@ func (d *Driver) GetInfo(ctx context.Context) (*models.DeviceInfo, error) {
 
 	info := &models.DeviceInfo{}
 	if nickname, ok := res["nickname"].(string); ok {
-		info.Nickname = nickname
+		info.Nickname = decodeNickname(nickname)
 	}
 	if model, ok := res["model"].(string); ok {
 		info.Model = model
@@ -82,6 +84,16 @@ func (d *Driver) GetInfo(ctx context.Context) (*models.DeviceInfo, error) {
 	}
 
 	return info, nil
+}
+
+// decodeNickname undoes the base64 encoding the device applies to its nickname.
+// Values that are not valid base64 UTF-8 are returned unchanged.
+func decodeNickname(nickname string) string {
+	decoded, err := base64.StdEncoding.DecodeString(nickname)
+	if err != nil || !utf8.Valid(decoded) {
+		return nickname
+	}
+	return string(decoded)
 }
 
 // GetEnergyUsage retrieves real-time energy telemetry (Watts, Voltage, Current, kWh).

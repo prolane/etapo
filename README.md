@@ -116,7 +116,7 @@ Flags must come before the mode, because Go stops parsing flags at the first pos
 | `collect` | `etapo --config config.yaml collect` | Collector and storage only (use when the API runs separately) |
 | `serve` | `etapo --config config.yaml serve` | Storage, API, and web UI only (reads data written by `collect`) |
 
-If `--config` points to a missing file, etapo falls back to `config.example.yaml` (mock devices) and prints a warning.
+A missing config file is an error; etapo never falls back to the example config. Run `etapo --help` for the same summary.
 
 ---
 
@@ -145,6 +145,22 @@ If `--config` points to a missing file, etapo falls back to `config.example.yaml
        type: "tapo"
        ip: "192.168.1.50"
    ```
+
+---
+
+## Standby Baseline
+
+The standby (vampire load) figure for each socket is its average power inside a time window, using the server's local time zone. The dashboard opens on the last night; the "Last 7 nights" button shows the average over the last seven nights instead. The default window is 02:00 to 05:00.
+
+To change the window, add a `standby` section to `config.yaml` and restart etapo (times are `HH:MM`, 24-hour, local time):
+
+```yaml
+standby:
+  start: "02:00"
+  end: "05:00"
+```
+
+An end earlier than the start wraps past midnight (for example `start: "23:00"`, `end: "05:00"`). Until there are readings inside the window, the dashboard shows "No data" instead of a value.
 
 ---
 
@@ -206,10 +222,12 @@ sudo systemctl status etapo
 | Endpoint | Method | Description |
 |---|---|---|
 | `/health` | `GET` | Health check endpoint |
-| `/api/summary` | `GET` | Aggregated total live Watts, today's kWh, and estimated cost |
-| `/api/plugs` | `GET` | List all plugs with latest telemetry and on/off status |
+| `/api/summary?nights=N` | `GET` | Aggregated total live Watts, today's kWh, estimated cost and standby. `nights` (1-365, default 7) sets how many nights the standby average covers |
+| `/api/plugs?nights=N` | `GET` | List all plugs with latest telemetry, on/off status and standby. `nights` as for `/api/summary` |
 | `/api/plugs/:id` | `GET` | Details for a specific plug |
 | `/api/plugs/:id/history?range=1h\|24h\|7d` | `GET` | Time-series data points for charting |
+| `/api/breakdown?range=today\|month&by=plug\|category` | `GET` | Consumption per hour (today) or per day (month) for the stacked chart. Pick a past period with `date=YYYY-MM-DD` (day) or `month=YYYY-MM` (month). Future periods return 400 |
+| `/api/leaderboard/month?month=YYYY-MM` | `GET` | Each plug's peak power, kWh and estimated cost for a calendar month. Defaults to the current month; future months return 400 |
 | `/api/plugs/:id/power` | `POST` | Toggle plug relay: `{"on": true\|false}` |
 | `/api/events` | `GET` | Server-Sent Events (SSE) real-time stream of socket readings |
 
@@ -219,4 +237,10 @@ sudo systemctl status etapo
 
 ```bash
 go test -v ./...
+```
+
+The end-to-end tests build the binary and run it against mock plugs, checking the API, dashboard, relay control, event stream, persistence across a restart and CLI handling:
+
+```bash
+make e2e
 ```

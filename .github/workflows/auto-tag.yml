@@ -1,0 +1,90 @@
+name: Auto tag
+
+# Tags every merged pull request on main and publishes a release:
+#   PR labelled release:major -> next major (vX+1.0.0)
+#   Dependabot PRs            -> next patch (vX.Y.Z+1)
+#   all other PRs            -> next minor (vX.Y+1.0)
+#
+# pull_request_target runs with a write-capable token. This workflow never checks
+# out or runs code from the PR; it only reads PR metadata from the event payload.
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions: {}
+
+concurrency:
+  group: auto-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Create next version tag
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - name: Work out the next version
+        id: next
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -euo pipefail
+          latest=$(gh api --paginate "repos/$REPO/tags" --jq '.[].name' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+          latest=${latest:-v0.0.0}
+          IFS=. read -r major minor patch <<< "${latest#v}"
+
+          case ",$PR_LABELS," in
+            *,release:major,*)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            *)
+              if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+                patch=$((patch + 1))
+              else
+                minor=$((minor + 1))
+                patch=0
+              fi
+              ;;
+          esac
+
+          echo "Latest tag $latest, next version v$major.$minor.$patch"
+          echo "version=v$major.$minor.$patch" >> "$GITHUB_OUTPUT"
+
+      - name: Create annotated tag on the merge commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ steps.next.outputs.version }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          tag_sha=$(gh api --method POST "repos/$REPO/git/tags" \
+            -f tag="$VERSION" \
+            -f message="Release $VERSION: $PR_TITLE (#$PR_NUMBER)" \
+            -f object="$MERGE_SHA" \
+            -f type=commit \
+            --jq '.sha')
+          gh api --method POST "repos/$REPO/git/refs" \
+            -f ref="refs/tags/$VERSION" \
+            -f sha="$tag_sha"
+
+  release:
+    name: Build and publish release
+    needs: tag
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.tag.outputs.version }}
