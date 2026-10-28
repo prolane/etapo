@@ -36,7 +36,7 @@ func TestStandbyRequiresNightReadings(t *testing.T) {
 		t.Fatalf("flush failed: %v", err)
 	}
 
-	plugs, err := store.GetPlugs(ctx, 0.30)
+	plugs, err := store.GetPlugs(ctx, 0.30, testStandby)
 	if err != nil {
 		t.Fatalf("GetPlugs failed: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestStandbyRequiresNightReadings(t *testing.T) {
 		t.Errorf("expected 4.2W standby from the 03:00 reading, got %v", withNight.StandbyWatts)
 	}
 
-	summary, err := store.GetSummary(ctx, "EUR", 0.30)
+	summary, err := store.GetSummary(ctx, "EUR", 0.30, testStandby)
 	if err != nil {
 		t.Fatalf("GetSummary failed: %v", err)
 	}
@@ -70,5 +70,47 @@ func TestStandbyRequiresNightReadings(t *testing.T) {
 	}
 	if summary.TotalStandbyWatts != 4.2 {
 		t.Errorf("expected total standby 4.2W, got %v", summary.TotalStandbyWatts)
+	}
+}
+
+var testStandby = models.StandbyPeriod{StartMinute: 120, EndMinute: 300}
+
+func TestStandbyWindowIsConfigurable(t *testing.T) {
+	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second, 10)
+	if err != nil {
+		t.Fatalf("failed to init storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	if err := store.UpsertPlug(ctx, models.Plug{
+		ID: "p1", Name: "p1", Model: "P115", DriverType: "mock", IP: "192.168.1.100", IsActive: true, IsOn: true,
+	}); err != nil {
+		t.Fatalf("failed to upsert plug: %v", err)
+	}
+
+	today := startOfLocalDay(time.Now())
+	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: today.Add(12 * time.Hour), PowerWatts: 50})
+	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: today.Add(23*time.Hour + 30*time.Minute), PowerWatts: 3})
+	if err := store.Flush(); err != nil {
+		t.Fatalf("flush failed: %v", err)
+	}
+
+	wrapping := models.StandbyPeriod{StartMinute: 23 * 60, EndMinute: 60}
+	plugs, err := store.GetPlugs(ctx, 0.30, wrapping)
+	if err != nil {
+		t.Fatalf("GetPlugs failed: %v", err)
+	}
+	if !plugs[0].HasStandbyData || plugs[0].StandbyWatts != 3 {
+		t.Errorf("23:00-01:00 window: expected 3W from the 23:30 reading, got has=%v watts=%v", plugs[0].HasStandbyData, plugs[0].StandbyWatts)
+	}
+
+	daytime := models.StandbyPeriod{StartMinute: 13 * 60, EndMinute: 14 * 60}
+	plugs, err = store.GetPlugs(ctx, 0.30, daytime)
+	if err != nil {
+		t.Fatalf("GetPlugs failed: %v", err)
+	}
+	if plugs[0].HasStandbyData {
+		t.Errorf("13:00-14:00 window: expected no data, got %v W", plugs[0].StandbyWatts)
 	}
 }

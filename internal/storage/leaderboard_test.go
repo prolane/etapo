@@ -31,7 +31,7 @@ func TestPeakWattsMonthIgnoresPreviousMonth(t *testing.T) {
 		t.Fatalf("flush failed: %v", err)
 	}
 
-	plugs, err := store.GetPlugs(ctx, 0.30)
+	plugs, err := store.GetPlugs(ctx, 0.30, testStandby)
 	if err != nil {
 		t.Fatalf("GetPlugs failed: %v", err)
 	}

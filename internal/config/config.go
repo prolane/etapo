@@ -48,6 +48,11 @@ type Config struct {
 		CostPerKWh float64 `yaml:"cost_per_kwh"` // Electricity rate, e.g. 0.30
 	} `yaml:"billing"`
 
+	Standby struct {
+		Start string `yaml:"start"` // Local start of the standby window, HH:MM
+		End   string `yaml:"end"`   // Local end of the standby window, HH:MM (earlier than start wraps past midnight)
+	} `yaml:"standby"`
+
 	TapoAuth struct {
 		Username string `yaml:"username"` // TP-Link / Tapo account email
 		Password string `yaml:"password"` // TP-Link / Tapo account password
@@ -71,6 +76,9 @@ func DefaultConfig() *Config {
 
 	cfg.Billing.Currency = "EUR"
 	cfg.Billing.CostPerKWh = 0.32
+
+	cfg.Standby.Start = "02:00"
+	cfg.Standby.End = "05:00"
 
 	return cfg
 }
@@ -147,6 +155,9 @@ func (c *Config) Validate() error {
 	if c.Billing.CostPerKWh < 0 {
 		errs = append(errs, fmt.Errorf("billing.cost_per_kwh must not be negative, got %v", c.Billing.CostPerKWh))
 	}
+	if _, _, err := c.StandbyMinutes(); err != nil {
+		errs = append(errs, err)
+	}
 
 	seen := make(map[string]bool)
 	for i, p := range c.Plugs {
@@ -189,6 +200,30 @@ func (c *Config) Validate() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// StandbyMinutes returns the standby window start and end as minutes after local midnight.
+func (c *Config) StandbyMinutes() (int, int, error) {
+	start, err := parseClock(c.Standby.Start)
+	if err != nil {
+		return 0, 0, fmt.Errorf("standby.start %w", err)
+	}
+	end, err := parseClock(c.Standby.End)
+	if err != nil {
+		return 0, 0, fmt.Errorf("standby.end %w", err)
+	}
+	if start == end {
+		return 0, 0, errors.New("standby.start and standby.end must be different")
+	}
+	return start, end, nil
+}
+
+func parseClock(value string) (int, error) {
+	t, err := time.Parse("15:04", value)
+	if err != nil {
+		return 0, fmt.Errorf("must be a time in HH:MM format, got %q", value)
+	}
+	return t.Hour()*60 + t.Minute(), nil
 }
 
 func isPlaceholder(value string) bool {

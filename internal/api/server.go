@@ -87,7 +87,13 @@ func (s *Server) handlePlugs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plugs, err := s.storage.GetPlugs(r.Context(), s.cfg.Billing.CostPerKWh)
+	standby, err := s.standbyPeriod()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	plugs, err := s.storage.GetPlugs(r.Context(), s.cfg.Billing.CostPerKWh, standby)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -117,7 +123,13 @@ func (s *Server) handleBreakdown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	breakdown, err := s.storage.GetBreakdown(r.Context(), rangeParam, byParam, start, s.cfg.Billing.CostPerKWh)
+	standby, err := s.standbyPeriod()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	breakdown, err := s.storage.GetBreakdown(r.Context(), rangeParam, byParam, start, s.cfg.Billing.CostPerKWh, standby)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -166,7 +178,13 @@ func (s *Server) handlePlugSubroutes(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		plug, err := s.storage.GetPlug(r.Context(), plugID, s.cfg.Billing.CostPerKWh)
+		standby, err := s.standbyPeriod()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		plug, err := s.storage.GetPlug(r.Context(), plugID, s.cfg.Billing.CostPerKWh, standby)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -260,13 +278,30 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	summary, err := s.storage.GetSummary(r.Context(), s.cfg.Billing.Currency, s.cfg.Billing.CostPerKWh)
+	standby, err := s.standbyPeriod()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	summary, err := s.storage.GetSummary(r.Context(), s.cfg.Billing.Currency, s.cfg.Billing.CostPerKWh, standby)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	summary.StandbyWindowStart = s.cfg.Standby.Start
+	summary.StandbyWindowEnd = s.cfg.Standby.End
+
 	writeJSON(w, http.StatusOK, summary)
+}
+
+// standbyPeriod returns the configured standby window as minutes after local midnight.
+func (s *Server) standbyPeriod() (models.StandbyPeriod, error) {
+	start, end, err := s.cfg.StandbyMinutes()
+	if err != nil {
+		return models.StandbyPeriod{}, err
+	}
+	return models.StandbyPeriod{StartMinute: start, EndMinute: end}, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

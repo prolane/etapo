@@ -163,7 +163,7 @@
         <div>
           <h2 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
             <span>🧛 Standby Leak Detector & Vampire Load</span>
-            <span class="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-normal">02:00 – 05:00 AM Baseline</span>
+            <span id="standby-window-badge" class="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-normal">02:00 – 05:00 Baseline</span>
           </h2>
           <p class="text-xs text-slate-400">Detects silent phantom loads that drain money 24/7 while your household is asleep</p>
         </div>
@@ -303,6 +303,7 @@
     let breakdownMonth = breakdownDate.slice(0, 7);
     let breakdownChartType = 'stacked';
     let leaderboardPeriod = 'today';
+    let standbyWindow = '02:00 – 05:00';
     let stackedChartInstance = null;
     let modalChartInstance = null;
     let selectedPlugId = null;
@@ -339,6 +340,9 @@
         const hasStandby = data.standby_data_available;
         document.getElementById('stat-standby-watts').textContent = hasStandby ? (data.total_standby_watts || 0).toFixed(1) : '–';
         document.getElementById('stat-annual-waste').textContent = hasStandby ? `${currencySymbol}${(data.annual_standby_waste || 0).toFixed(2)}` : '–';
+        standbyWindow = `${data.standby_window_start} – ${data.standby_window_end}`;
+        document.getElementById('standby-window-badge').textContent = `${standbyWindow} Baseline`;
+        document.getElementById('stat-standby-note').textContent = `No readings from ${standbyWindow} yet`;
         document.getElementById('stat-standby-note').classList.toggle('hidden', hasStandby);
       } catch (err) {
         console.error('Failed to fetch summary:', err);
@@ -410,7 +414,7 @@
                 </span>
               </div>
               <p class="text-[11px] text-slate-500 mt-0.5">${escapeHTML(p.category || 'General')}</p>
-              ${hasData ? '' : '<p class="text-[11px] text-amber-400 mt-1">No readings from 02:00–05:00 yet</p>'}
+              ${hasData ? '' : `<p class="text-[11px] text-amber-400 mt-1">No readings from ${standbyWindow} yet</p>`}
             </div>
 
             <div class="mt-4 pt-3 border-t border-slate-800/60 flex items-end justify-between">
@@ -806,7 +810,7 @@
       document.getElementById('modal-peak-watts').textContent = `${(p.peak_watts_today || liveW).toFixed(1)} W`;
       document.getElementById('modal-runtime').textContent = `${(p.runtime_today_hours || 0).toFixed(1)} h`;
       document.getElementById('modal-standby').textContent = p.has_standby_data ? `${(p.standby_watts || 0).toFixed(1)} W` : 'No data';
-      document.getElementById('modal-standby-cost').textContent = p.has_standby_data ? `${currencySymbol}${(p.annual_standby_cost || 0).toFixed(2)} / yr` : 'No readings 02:00–05:00 yet';
+      document.getElementById('modal-standby-cost').textContent = p.has_standby_data ? `${currencySymbol}${(p.annual_standby_cost || 0).toFixed(2)} / yr` : `No readings from ${standbyWindow} yet`;
 
       const btn = document.getElementById('modal-toggle-btn');
       const text = document.getElementById('modal-toggle-text');

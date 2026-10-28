@@ -58,7 +58,7 @@ func TestStorageLifecycle(t *testing.T) {
 	}
 
 	// 3. Verify Plugs query returns latest reading and analytics
-	plugs, err := store.GetPlugs(ctx, 0.30)
+	plugs, err := store.GetPlugs(ctx, 0.30, testStandby)
 	if err != nil {
 		t.Fatalf("failed to get plugs: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestStorageLifecycle(t *testing.T) {
 	}
 
 	// 4. Verify Summary
-	summary, err := store.GetSummary(ctx, "EUR", 0.30)
+	summary, err := store.GetSummary(ctx, "EUR", 0.30, testStandby)
 	if err != nil {
 		t.Fatalf("failed to get summary: %v", err)
 	}

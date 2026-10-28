@@ -222,7 +222,7 @@ func (s *Storage) UpdatePlugState(ctx context.Context, id string, isOn bool) err
 }
 
 // GetPlugs returns all configured plugs enriched with latest reading and homeowner analytics.
-func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64) ([]models.PlugWithLatest, error) {
+func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64, standbyPeriod models.StandbyPeriod) ([]models.PlugWithLatest, error) {
 	query := `
 		SELECT 
 			p.id, p.name, p.model, p.category, p.driver_type, p.ip, p.mac, p.is_active, p.is_on, p.created_at, p.updated_at,
@@ -314,15 +314,17 @@ func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64) ([]models.Pl
 			p.PeakWattsMonth = p.LatestReading.PowerWatts
 		}
 
-		// 2. Standby/Vampire Load (lowest Watts recorded between 02:00 and 05:00 local time).
+		// 2. Standby/Vampire Load (lowest Watts recorded inside the standby window, local time).
 		// Without readings in that window there is no baseline, so none is reported.
 		var nightSamples int
 		var standby sql.NullFloat64
+		windowSQL, windowArgs := standbyWindowSQL(standbyPeriod)
 		_ = s.db.QueryRowContext(ctx, `
 			SELECT COUNT(*), MIN(CASE WHEN power_watts > 0.05 THEN power_watts END)
 			FROM energy_readings
-			WHERE plug_id = ? AND strftime('%H', substr(timestamp, 1, 19), 'localtime') IN ('02', '03', '04')
-		`, p.ID).Scan(&nightSamples, &standby)
+			WHERE plug_id = ? AND `+windowSQL,
+			append([]any{p.ID}, windowArgs...)...,
+		).Scan(&nightSamples, &standby)
 
 		p.HasStandbyData = nightSamples > 0
 		if p.HasStandbyData && standby.Valid {
@@ -361,8 +363,8 @@ func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64) ([]models.Pl
 }
 
 // GetPlug returns a single plug with its latest telemetry and analytics.
-func (s *Storage) GetPlug(ctx context.Context, id string, costPerKWh float64) (*models.PlugWithLatest, error) {
-	plugs, err := s.GetPlugs(ctx, costPerKWh)
+func (s *Storage) GetPlug(ctx context.Context, id string, costPerKWh float64, standbyPeriod models.StandbyPeriod) (*models.PlugWithLatest, error) {
+	plugs, err := s.GetPlugs(ctx, costPerKWh, standbyPeriod)
 	if err != nil {
 		return nil, err
 	}
@@ -444,8 +446,8 @@ func (s *Storage) GetHistory(ctx context.Context, plugID string, since time.Time
 }
 
 // GetSummary returns top-level aggregated figures across all sockets for the top KPI bar.
-func (s *Storage) GetSummary(ctx context.Context, currency string, costPerKWh float64) (*models.SystemSummary, error) {
-	plugs, err := s.GetPlugs(ctx, costPerKWh)
+func (s *Storage) GetSummary(ctx context.Context, currency string, costPerKWh float64, standbyPeriod models.StandbyPeriod) (*models.SystemSummary, error) {
+	plugs, err := s.GetPlugs(ctx, costPerKWh, standbyPeriod)
 	if err != nil {
 		return nil, err
 	}
@@ -496,10 +498,19 @@ func valuePtr(v float64) *float64 {
 	return &v
 }
 
+// standbyWindowSQL returns a condition matching readings taken inside the standby window (local time).
+func standbyWindowSQL(period models.StandbyPeriod) (string, []any) {
+	minuteOfDay := "(CAST(strftime('%H', substr(timestamp, 1, 19), 'localtime') AS INTEGER) * 60 + CAST(strftime('%M', substr(timestamp, 1, 19), 'localtime') AS INTEGER))"
+	if period.StartMinute < period.EndMinute {
+		return minuteOfDay + " >= ? AND " + minuteOfDay + " < ?", []any{period.StartMinute, period.EndMinute}
+	}
+	return "(" + minuteOfDay + " >= ? OR " + minuteOfDay + " < ?)", []any{period.StartMinute, period.EndMinute}
+}
+
 // GetBreakdown returns stacked time-series data grouped by plug or category for charts.
 // start selects the local day (rangeType "today") or month (rangeType "month") to show.
-func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, start time.Time, costPerKWh float64) (*models.BreakdownResponse, error) {
-	plugs, err := s.GetPlugs(ctx, costPerKWh)
+func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, start time.Time, costPerKWh float64, standbyPeriod models.StandbyPeriod) (*models.BreakdownResponse, error) {
+	plugs, err := s.GetPlugs(ctx, costPerKWh, standbyPeriod)
 	if err != nil {
 		return nil, err
 	}

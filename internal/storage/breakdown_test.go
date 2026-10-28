@@ -48,7 +48,7 @@ func TestGetBreakdownTodayBucketsByLocalHour(t *testing.T) {
 		t.Fatalf("flush failed: %v", err)
 	}
 
-	resp, err := store.GetBreakdown(ctx, "today", "plug", midnight, 0.30)
+	resp, err := store.GetBreakdown(ctx, "today", "plug", midnight, 0.30, testStandby)
 	if err != nil {
 		t.Fatalf("GetBreakdown failed: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestGetBreakdownSelectedDayOnlyUsesThatDay(t *testing.T) {
 		t.Fatalf("flush failed: %v", err)
 	}
 
-	resp, err := store.GetBreakdown(ctx, "today", "plug", yesterday, 0.30)
+	resp, err := store.GetBreakdown(ctx, "today", "plug", yesterday, 0.30, testStandby)
 	if err != nil {
 		t.Fatalf("GetBreakdown failed: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestGetBreakdownSelectedMonthUsesThatMonth(t *testing.T) {
 		t.Fatalf("flush failed: %v", err)
 	}
 
-	resp, err := store.GetBreakdown(ctx, "month", "plug", prevStart, 0.30)
+	resp, err := store.GetBreakdown(ctx, "month", "plug", prevStart, 0.30, testStandby)
 	if err != nil {
 		t.Fatalf("GetBreakdown failed: %v", err)
 	}

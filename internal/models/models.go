@@ -62,6 +62,12 @@ type PlugWithLatest struct {
 	EstimatedMonthCost float64        `json:"estimated_month_cost"` // Projected monthly electricity cost (€/mo)
 }
 
+// StandbyPeriod selects the readings used for the standby baseline.
+type StandbyPeriod struct {
+	StartMinute int // Minutes after local midnight when the window starts
+	EndMinute   int // Minutes after local midnight when the window ends; earlier than StartMinute wraps past midnight
+}
+
 // SystemSummary provides top-level metrics across all sockets for the top KPI bar.
 type SystemSummary struct {
 	TotalPowerWatts      float64   `json:"total_power_watts"`       // Instantaneous total draw in Watts
@@ -71,7 +77,9 @@ type SystemSummary struct {
 	TotalEnergyMonth     float64   `json:"total_energy_month_kwh"`  // Cumulative consumption this month (kWh)
 	EstimatedCostMonth   float64   `json:"estimated_cost_month"`    // Projected monthly cost (€)
 	TotalStandbyWatts    float64   `json:"total_standby_watts"`     // Combined baseline standby load (W)
-	StandbyDataAvailable bool      `json:"standby_data_available"`  // Any socket has readings in the 02:00-05:00 window
+	StandbyDataAvailable bool      `json:"standby_data_available"`  // Any socket has readings in the standby window
+	StandbyWindowStart   string    `json:"standby_window_start"`    // Standby window start, HH:MM local time
+	StandbyWindowEnd     string    `json:"standby_window_end"`      // Standby window end, HH:MM local time
 	AnnualStandbyWaste   float64   `json:"annual_standby_waste"`    // Total household cost of standby per year (€)
 	Currency             string    `json:"currency"`
 	ActivePlugsCount     int       `json:"active_plugs_count"`

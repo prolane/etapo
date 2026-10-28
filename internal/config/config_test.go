@@ -49,6 +49,9 @@ func TestValidate(t *testing.T) {
 			c.Plugs = append(c.Plugs, PlugConfig{ID: "office", Type: "mock"})
 		}, wantErr: "duplicate id"},
 		{name: "empty id", mutate: func(c *Config) { c.Plugs[0].ID = "" }, wantErr: "id must not be empty"},
+		{name: "standby window unset uses default", mutate: func(c *Config) { c.Standby.Start = ""; c.Standby.End = "" }, wantErr: "standby.start must be"},
+		{name: "standby window malformed", mutate: func(c *Config) { c.Standby.End = "5am" }, wantErr: "standby.end must be"},
+		{name: "standby window empty", mutate: func(c *Config) { c.Standby.Start = "03:00"; c.Standby.End = "03:00" }, wantErr: "must be different"},
 	}
 
 	for _, tt := range tests {
@@ -101,5 +104,32 @@ func TestLoadAppliesEnvCredentials(t *testing.T) {
 
 	if _, err := Load(path); err != nil {
 		t.Fatalf("expected env credentials to satisfy validation, got %v", err)
+	}
+}
+
+func TestStandbyMinutes(t *testing.T) {
+	tests := []struct {
+		name       string
+		start, end string
+		wantStart  int
+		wantEnd    int
+	}{
+		{name: "default window", start: "02:00", end: "05:00", wantStart: 120, wantEnd: 300},
+		{name: "wraps past midnight", start: "23:30", end: "06:15", wantStart: 1410, wantEnd: 375},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Standby.Start = tt.start
+			cfg.Standby.End = tt.end
+			start, end, err := cfg.StandbyMinutes()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if start != tt.wantStart || end != tt.wantEnd {
+				t.Fatalf("expected %d-%d, got %d-%d", tt.wantStart, tt.wantEnd, start, end)
+			}
+		})
 	}
 }
