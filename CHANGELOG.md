@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-28
+
 ### Added
 - GitHub Actions CI workflow: formatting check, `go vet`, `go test -race`, and a cross-compile smoke test for all release targets on every push and pull request.
 - `etapo --help` describes the `run`, `collect` and `serve` modes and the flag order.
