@@ -127,7 +127,7 @@
         <div>
           <h2 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
             Energy Consumption Breakdown
-            <span class="text-xs font-normal text-slate-400">Stacked by device</span>
+            <span id="breakdown-subtitle" class="text-xs font-normal text-slate-400">Stacked by device</span>
           </h2>
           <p class="text-xs text-slate-500">Compare consumption distribution across plugs</p>
         </div>
@@ -140,10 +140,15 @@
             <button id="btn-breakdown-next" onclick="stepBreakdown(1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40 disabled:hover:text-slate-300" title="Next">›</button>
             <button id="btn-breakdown-now" onclick="resetBreakdown()" class="hidden px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition"></button>
           </div>
-          <!-- Stacked Chart View Toggle -->
+          <!-- Chart Range Toggle -->
           <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs">
             <button onclick="setBreakdownRange('today')" id="btn-chart-day" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Day (Hourly W)</button>
             <button onclick="setBreakdownRange('month')" id="btn-chart-month" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Month (Daily kWh)</button>
+          </div>
+          <!-- Chart Type Toggle -->
+          <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs">
+            <button onclick="setBreakdownChartType('stacked')" id="btn-type-stacked" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Stacked</button>
+            <button onclick="setBreakdownChartType('line')" id="btn-type-line" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Lines</button>
           </div>
         </div>
       </div>
@@ -289,6 +294,7 @@
     let breakdownRange = 'today';
     let breakdownDate = localDateString(new Date());
     let breakdownMonth = breakdownDate.slice(0, 7);
+    let breakdownChartType = 'stacked';
     let stackedChartInstance = null;
     let modalChartInstance = null;
     let selectedPlugId = null;
@@ -529,20 +535,21 @@
 
     function initStackedChart() {
       const ctx = document.getElementById('stackedChart').getContext('2d');
+      const isLine = breakdownChartType === 'line';
       stackedChartInstance = new Chart(ctx, {
-        type: 'bar',
+        type: isLine ? 'line' : 'bar',
         data: { labels: [], datasets: [] },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           scales: {
             x: {
-              stacked: true,
+              stacked: !isLine,
               grid: { color: 'rgba(51, 65, 85, 0.2)' },
               ticks: { color: '#64748b', font: { size: 11 } }
             },
             y: {
-              stacked: true,
+              stacked: !isLine,
               grid: { color: 'rgba(51, 65, 85, 0.2)' },
               ticks: { color: '#64748b', font: { size: 11 } },
               title: {
@@ -580,12 +587,22 @@
         const data = await res.json();
 
         stackedChartInstance.data.labels = data.labels;
-        stackedChartInstance.data.datasets = data.series.map(s => ({
+        const isLine = breakdownChartType === 'line';
+        stackedChartInstance.data.datasets = data.series.map(s => isLine ? {
+          label: s.label,
+          data: s.data,
+          borderColor: s.color,
+          backgroundColor: s.color,
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.3,
+          fill: false
+        } : {
           label: s.label,
           data: s.data,
           backgroundColor: s.color,
           borderRadius: 3
-        }));
+        });
 
         stackedChartInstance.options.scales.y.title.text = (breakdownRange === 'month') ? 'Energy (kWh)' : 'Average Power (Watts)';
         stackedChartInstance.update();
@@ -606,6 +623,23 @@
         btnDay.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
       }
       updateBreakdownControls();
+      loadBreakdownChart();
+    }
+
+    function setBreakdownChartType(t) {
+      breakdownChartType = t;
+      const btnStacked = document.getElementById('btn-type-stacked');
+      const btnLine = document.getElementById('btn-type-line');
+      if (t === 'line') {
+        btnLine.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnStacked.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+      } else {
+        btnStacked.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnLine.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+      }
+      document.getElementById('breakdown-subtitle').textContent = t === 'line' ? 'One line per device' : 'Stacked by device';
+      stackedChartInstance.destroy();
+      initStackedChart();
       loadBreakdownChart();
     }
 
