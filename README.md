@@ -108,17 +108,21 @@ open http://localhost:8080
 
 ## Configuring Real Tapo P115 Plugs
 
-1. Copy the example configuration:
+1. In the Tapo app, signed in with the same account as in step 3, enable third-party access:
+   **Me → Third-Party Services → Third-Party Compatibility** → switch on.
+   Without this, the plugs reject Etapo's login with `handshake1 returned HTTP 403`.
+   The location of the **Me** tab depends on the app version (bottom right or top left).
+2. Copy the example configuration:
    ```bash
    cp config.example.yaml config.yaml
    ```
-2. Open `config.yaml` and set your TP-Link account credentials:
+3. Open `config.yaml` and set your TP-Link account credentials:
    ```yaml
    tapo_auth:
      username: "your-tplink-email@example.com"
      password: "your-tplink-password"
    ```
-3. Set `type: "tapo"` and enter each plug's local LAN IP:
+4. Set `type: "tapo"` and enter each plug's local LAN IP:
    ```yaml
    plugs:
      - id: "living-room-tv"
