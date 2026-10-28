@@ -169,8 +169,8 @@
         </div>
         <!-- Standby Period Toggle -->
         <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs self-start sm:self-auto">
-          <button onclick="setStandbyNights(1)" id="btn-standby-night" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Last night</button>
-          <button onclick="setStandbyNights(7)" id="btn-standby-week" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Last 7 nights</button>
+          <button onclick="setStandbyNights(1)" id="btn-standby-night" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Last night</button>
+          <button onclick="setStandbyNights(7)" id="btn-standby-week" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Last 7 nights</button>
         </div>
       </div>
 
@@ -317,7 +317,7 @@
     let leaderboardMonth = localDateString(new Date()).slice(0, 7);
     let monthStats = {};
     let standbyWindow = '02:00 – 05:00';
-    let standbyNights = 7;
+    let standbyNights = 1;
     let stackedChartInstance = null;
     let modalChartInstance = null;
     let selectedPlugId = null;
