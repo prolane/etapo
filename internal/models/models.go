@@ -87,10 +87,10 @@ type HistoryPoint struct {
 
 // BreakdownSeries represents one series in a stacked chart (e.g. one plug or category).
 type BreakdownSeries struct {
-	ID    string    `json:"id"`
-	Label string    `json:"label"`
-	Color string    `json:"color,omitempty"`
-	Data  []float64 `json:"data"`
+	ID    string     `json:"id"`
+	Label string     `json:"label"`
+	Color string     `json:"color,omitempty"`
+	Data  []*float64 `json:"data"` // nil where the period has no readings
 }
 
 // BreakdownResponse contains formatted data for stacked bar/area consumption charts.

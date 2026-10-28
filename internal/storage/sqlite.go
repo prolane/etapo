@@ -492,6 +492,10 @@ func startOfLocalDay(t time.Time) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, time.Local)
 }
 
+func valuePtr(v float64) *float64 {
+	return &v
+}
+
 // GetBreakdown returns stacked time-series data grouped by plug or category for charts.
 // start selects the local day (rangeType "today") or month (rangeType "month") to show.
 func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, start time.Time, costPerKWh float64) (*models.BreakdownResponse, error) {
@@ -532,7 +536,7 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, st
 				ID:    p.ID,
 				Label: p.Name,
 				Color: colors[idx%len(colors)],
-				Data:  make([]float64, daysInMonth),
+				Data:  make([]*float64, daysInMonth),
 			}
 
 			// Query daily consumption for this plug
@@ -551,7 +555,7 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, st
 						var dayNum int
 						fmt.Sscanf(dayStr, "%d", &dayNum)
 						if dayNum >= 1 && dayNum <= daysInMonth {
-							series.Data[dayNum-1] = math.Round(val*100) / 100
+							series.Data[dayNum-1] = valuePtr(math.Round(val*100) / 100)
 						}
 					}
 				}
@@ -559,8 +563,8 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, st
 			}
 
 			// If data is sparse in dev, fill current day with today's kWh
-			if isCurrentMonth && p.LatestReading != nil && series.Data[daysInMonth-1] == 0 {
-				series.Data[daysInMonth-1] = math.Round(p.LatestReading.EnergyTodayKWh*100) / 100
+			if isCurrentMonth && p.LatestReading != nil && series.Data[daysInMonth-1] == nil {
+				series.Data[daysInMonth-1] = valuePtr(math.Round(p.LatestReading.EnergyTodayKWh*100) / 100)
 			}
 
 			resp.Series = append(resp.Series, series)
@@ -582,7 +586,7 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, st
 				ID:    p.ID,
 				Label: p.Name,
 				Color: colors[idx%len(colors)],
-				Data:  make([]float64, 24),
+				Data:  make([]*float64, 24),
 			}
 
 			// Query average watts per hour slot today
@@ -601,7 +605,7 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, st
 						var hNum int
 						fmt.Sscanf(hourStr, "%d", &hNum)
 						if hNum >= 0 && hNum < 24 {
-							series.Data[hNum] = math.Round(avgWatts*10) / 10
+							series.Data[hNum] = valuePtr(math.Round(avgWatts*10) / 10)
 						}
 					}
 				}
@@ -610,8 +614,8 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, st
 
 			// If the current hour has no samples yet, show the latest reading for today
 			currentHour := now.Hour()
-			if isToday && p.LatestReading != nil && series.Data[currentHour] == 0 {
-				series.Data[currentHour] = math.Round(p.LatestReading.PowerWatts*10) / 10
+			if isToday && p.LatestReading != nil && series.Data[currentHour] == nil {
+				series.Data[currentHour] = valuePtr(math.Round(p.LatestReading.PowerWatts*10) / 10)
 			}
 
 			resp.Series = append(resp.Series, series)

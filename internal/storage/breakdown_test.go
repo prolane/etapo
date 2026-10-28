@@ -25,6 +25,17 @@ func newBreakdownStore(t *testing.T) *Storage {
 	return store
 }
 
+func assertBucket(t *testing.T, data []*float64, i int, want float64) {
+	t.Helper()
+	if data[i] == nil {
+		t.Errorf("expected %v in bucket %d, got no data", want, i)
+		return
+	}
+	if *data[i] != want {
+		t.Errorf("expected %v in bucket %d, got %v", want, i, *data[i])
+	}
+}
+
 func TestGetBreakdownTodayBucketsByLocalHour(t *testing.T) {
 	store := newBreakdownStore(t)
 	ctx := context.Background()
@@ -46,15 +57,9 @@ func TestGetBreakdownTodayBucketsByLocalHour(t *testing.T) {
 	}
 
 	data := resp.Series[0].Data
-	if data[0] != 7 {
-		t.Errorf("expected 7W in the 00:00 local bucket, got %v", data[0])
-	}
-	if data[1] != 10 {
-		t.Errorf("expected 10W in the 01:00 local bucket, got %v", data[1])
-	}
-	if data[2] != 20 {
-		t.Errorf("expected 20W in the 02:00 local bucket, got %v", data[2])
-	}
+	assertBucket(t, data, 0, 7)
+	assertBucket(t, data, 1, 10)
+	assertBucket(t, data, 2, 20)
 }
 
 func TestGetBreakdownSelectedDayOnlyUsesThatDay(t *testing.T) {
@@ -76,14 +81,12 @@ func TestGetBreakdownSelectedDayOnlyUsesThatDay(t *testing.T) {
 	}
 
 	data := resp.Series[0].Data
-	if data[5] != 10 {
-		t.Errorf("expected 10W in yesterday's 05:00 bucket, got %v", data[5])
-	}
-	if data[0] != 0 || data[1] != 0 {
+	assertBucket(t, data, 5, 10)
+	if data[0] != nil || data[1] != nil {
 		t.Errorf("expected no readings from today in yesterday's view, got 00:00=%v 01:00=%v", data[0], data[1])
 	}
-	if now := time.Now().Hour(); now != 5 && data[now] != 0 {
-		t.Errorf("expected no current-hour fill for a past day, got %v at %02d:00", data[now], now)
+	if now := time.Now().Hour(); now != 5 && data[now] != nil {
+		t.Errorf("expected no current-hour fill for a past day, got %v at %02d:00", *data[now], now)
 	}
 }
 
@@ -115,10 +118,8 @@ func TestGetBreakdownSelectedMonthUsesThatMonth(t *testing.T) {
 	}
 
 	data := resp.Series[0].Data
-	if data[14] != 2.5 {
-		t.Errorf("expected 2.5 kWh on the 15th, got %v", data[14])
-	}
-	if data[daysInPrev-1] != 0 {
-		t.Errorf("expected no current-day fill for a past month, got %v on the last day", data[daysInPrev-1])
+	assertBucket(t, data, 14, 2.5)
+	if data[daysInPrev-1] != nil {
+		t.Errorf("expected no current-day fill for a past month, got %v on the last day", *data[daysInPrev-1])
 	}
 }
