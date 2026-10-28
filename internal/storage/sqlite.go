@@ -286,7 +286,7 @@ func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64) ([]models.Pl
 			SELECT MAX(power_watts), AVG(power_watts)
 			FROM energy_readings
 			WHERE plug_id = ? AND timestamp >= ?
-		`, p.ID, midnightToday).Scan(&peakToday, &avgToday)
+		`, p.ID, midnightToday.UTC()).Scan(&peakToday, &avgToday)
 
 		if peakToday.Valid {
 			p.PeakWattsToday = math.Round(peakToday.Float64*10) / 10
@@ -329,7 +329,7 @@ func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64) ([]models.Pl
 				COUNT(*)
 			FROM energy_readings
 			WHERE plug_id = ? AND timestamp >= ?
-		`, p.ID, midnightToday).Scan(&activeCount, &totalCount)
+		`, p.ID, midnightToday.UTC()).Scan(&activeCount, &totalCount)
 
 		if totalCount > 0 {
 			hoursSinceMidnight := time.Since(midnightToday).Hours()
@@ -477,7 +477,8 @@ func startOfLocalDay(t time.Time) time.Time {
 }
 
 // GetBreakdown returns stacked time-series data grouped by plug or category for charts.
-func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, costPerKWh float64) (*models.BreakdownResponse, error) {
+// start selects the local day (rangeType "today") or month (rangeType "month") to show.
+func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, start time.Time, costPerKWh float64) (*models.BreakdownResponse, error) {
 	plugs, err := s.GetPlugs(ctx, costPerKWh)
 	if err != nil {
 		return nil, err
@@ -496,10 +497,15 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, co
 	}
 
 	if rangeType == "month" {
-		// Daily view for the current month
+		// Daily view for the selected month; the current month stops at today
+		monthStart := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, time.Local)
+		monthEnd := monthStart.AddDate(0, 1, 0)
+		daysInMonth := monthEnd.AddDate(0, 0, -1).Day()
 		now := time.Now()
-		daysInMonth := now.Day()
-		startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+		isCurrentMonth := !now.Before(monthStart) && now.Before(monthEnd)
+		if isCurrentMonth {
+			daysInMonth = now.Day()
+		}
 
 		for d := 1; d <= daysInMonth; d++ {
 			resp.Labels = append(resp.Labels, fmt.Sprintf("Day %d", d))
@@ -517,9 +523,9 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, co
 			rows, qErr := s.db.QueryContext(ctx, `
 				SELECT strftime('%d', substr(timestamp, 1, 19), 'localtime') as day_str, MAX(energy_today_kwh)
 				FROM energy_readings
-				WHERE plug_id = ? AND timestamp >= ?
+				WHERE plug_id = ? AND timestamp >= ? AND timestamp < ?
 				GROUP BY day_str
-			`, p.ID, startOfMonth)
+			`, p.ID, monthStart.UTC(), monthEnd.UTC())
 
 			if qErr == nil {
 				for rows.Next() {
@@ -537,7 +543,7 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, co
 			}
 
 			// If data is sparse in dev, fill current day with today's kWh
-			if p.LatestReading != nil && series.Data[daysInMonth-1] == 0 {
+			if isCurrentMonth && p.LatestReading != nil && series.Data[daysInMonth-1] == 0 {
 				series.Data[daysInMonth-1] = math.Round(p.LatestReading.EnergyTodayKWh*100) / 100
 			}
 
@@ -545,12 +551,15 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, co
 		}
 
 	} else {
-		// Hourly view for today (00:00 to 23:00)
+		// Hourly view for the selected day (00:00 to 23:00 local time)
 		for h := 0; h < 24; h++ {
 			resp.Labels = append(resp.Labels, fmt.Sprintf("%02d:00", h))
 		}
 
-		midnight := startOfLocalDay(time.Now())
+		dayStart := startOfLocalDay(start)
+		dayEnd := dayStart.AddDate(0, 0, 1)
+		now := time.Now()
+		isToday := !now.Before(dayStart) && now.Before(dayEnd)
 
 		for idx, p := range plugs {
 			series := models.BreakdownSeries{
@@ -564,9 +573,9 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, co
 			rows, qErr := s.db.QueryContext(ctx, `
 				SELECT strftime('%H', substr(timestamp, 1, 19), 'localtime') as hour_str, AVG(power_watts)
 				FROM energy_readings
-				WHERE plug_id = ? AND timestamp >= ?
+				WHERE plug_id = ? AND timestamp >= ? AND timestamp < ?
 				GROUP BY hour_str
-			`, p.ID, midnight)
+			`, p.ID, dayStart.UTC(), dayEnd.UTC())
 
 			if qErr == nil {
 				for rows.Next() {
@@ -583,9 +592,9 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, co
 				rows.Close()
 			}
 
-			// If current hour is 0 and we have a reading, populate current hour
-			currentHour := time.Now().Hour()
-			if p.LatestReading != nil && series.Data[currentHour] == 0 {
+			// If the current hour has no samples yet, show the latest reading for today
+			currentHour := now.Hour()
+			if isToday && p.LatestReading != nil && series.Data[currentHour] == 0 {
 				series.Data[currentHour] = math.Round(p.LatestReading.PowerWatts*10) / 10
 			}
 

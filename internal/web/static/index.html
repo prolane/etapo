@@ -131,10 +131,18 @@
           </h2>
           <p class="text-xs text-slate-500">Compare consumption distribution across plugs</p>
         </div>
-        <div class="flex items-center space-x-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Period Picker -->
+          <div class="flex items-center gap-1 text-xs">
+            <button onclick="stepBreakdown(-1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition" title="Previous">‹</button>
+            <input type="date" id="breakdown-date" onchange="setBreakdownPeriod(this.value)" class="px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
+            <input type="month" id="breakdown-month" onchange="setBreakdownPeriod(this.value)" class="hidden px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
+            <button id="btn-breakdown-next" onclick="stepBreakdown(1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40 disabled:hover:text-slate-300" title="Next">›</button>
+            <button id="btn-breakdown-now" onclick="resetBreakdown()" class="hidden px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition"></button>
+          </div>
           <!-- Stacked Chart View Toggle -->
           <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs">
-            <button onclick="setBreakdownRange('today')" id="btn-chart-today" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Today (Hourly W)</button>
+            <button onclick="setBreakdownRange('today')" id="btn-chart-day" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Day (Hourly W)</button>
             <button onclick="setBreakdownRange('month')" id="btn-chart-month" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Month (Daily kWh)</button>
           </div>
         </div>
@@ -279,6 +287,8 @@
     let sortAsc = false;
     let currencySymbol = '€';
     let breakdownRange = 'today';
+    let breakdownDate = localDateString(new Date());
+    let breakdownMonth = breakdownDate.slice(0, 7);
     let stackedChartInstance = null;
     let modalChartInstance = null;
     let selectedPlugId = null;
@@ -288,6 +298,7 @@
     async function init() {
       initStackedChart();
       initModalChart();
+      updateBreakdownControls();
       await refreshAll();
       connectSSE();
     }
@@ -561,7 +572,10 @@
 
     async function loadBreakdownChart() {
       try {
-        const res = await fetch(`/api/breakdown?range=${breakdownRange}`);
+        const period = breakdownRange === 'month'
+          ? `range=month&month=${breakdownMonth}`
+          : `range=today&date=${breakdownDate}`;
+        const res = await fetch(`/api/breakdown?${period}`);
         if (!res.ok) return;
         const data = await res.json();
 
@@ -582,16 +596,81 @@
 
     function setBreakdownRange(r) {
       breakdownRange = r;
-      const btnToday = document.getElementById('btn-chart-today');
+      const btnDay = document.getElementById('btn-chart-day');
       const btnMonth = document.getElementById('btn-chart-month');
       if (r === 'today') {
-        btnToday.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
+        btnDay.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
         btnMonth.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
       } else {
         btnMonth.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
-        btnToday.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+        btnDay.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
       }
+      updateBreakdownControls();
       loadBreakdownChart();
+    }
+
+    function localDateString(d) {
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+
+    function setBreakdownPeriod(value) {
+      if (!value) return;
+      if (breakdownRange === 'month') {
+        breakdownMonth = value;
+      } else {
+        breakdownDate = value;
+      }
+      clampBreakdownPeriod();
+      updateBreakdownControls();
+      loadBreakdownChart();
+    }
+
+    function stepBreakdown(delta) {
+      if (breakdownRange === 'month') {
+        const [y, m] = breakdownMonth.split('-').map(Number);
+        breakdownMonth = localDateString(new Date(y, m - 1 + delta, 1)).slice(0, 7);
+      } else {
+        const [y, m, d] = breakdownDate.split('-').map(Number);
+        breakdownDate = localDateString(new Date(y, m - 1, d + delta));
+      }
+      clampBreakdownPeriod();
+      updateBreakdownControls();
+      loadBreakdownChart();
+    }
+
+    function resetBreakdown() {
+      const today = localDateString(new Date());
+      breakdownDate = today;
+      breakdownMonth = today.slice(0, 7);
+      updateBreakdownControls();
+      loadBreakdownChart();
+    }
+
+    function clampBreakdownPeriod() {
+      const today = localDateString(new Date());
+      if (breakdownDate > today) breakdownDate = today;
+      if (breakdownMonth > today.slice(0, 7)) breakdownMonth = today.slice(0, 7);
+    }
+
+    function updateBreakdownControls() {
+      const today = localDateString(new Date());
+      const isMonth = breakdownRange === 'month';
+      const atCurrent = isMonth ? breakdownMonth === today.slice(0, 7) : breakdownDate === today;
+
+      const dayInput = document.getElementById('breakdown-date');
+      const monthInput = document.getElementById('breakdown-month');
+      dayInput.classList.toggle('hidden', isMonth);
+      monthInput.classList.toggle('hidden', !isMonth);
+      dayInput.value = breakdownDate;
+      dayInput.max = today;
+      monthInput.value = breakdownMonth;
+      monthInput.max = today.slice(0, 7);
+
+      document.getElementById('btn-breakdown-next').disabled = atCurrent;
+      const btnNow = document.getElementById('btn-breakdown-now');
+      btnNow.classList.toggle('hidden', atCurrent);
+      btnNow.textContent = isMonth ? 'This month' : 'Today';
     }
 
     // Modal Handling
