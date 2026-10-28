@@ -11,12 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions CI workflow: formatting check, `go vet`, `go test -race`, and a cross-compile smoke test for all release targets on every push and pull request.
 - `etapo --help` describes the `run`, `collect` and `serve` modes and the flag order.
 - The configuration is validated at startup. Invalid settings, unknown plug types, missing or placeholder Tapo credentials, and Tapo plugs without a valid IP are reported with the field name.
+- Configurable standby window (`standby.start` and `standby.end`, default 02:00 to 05:00 local time). The Standby Leak Detector shows the average power inside it for the last night or the last 7 nights, and reports "No data" when there are no readings in the window.
+- The breakdown chart has a day and month picker and a Lines toggle. Hours without readings show as gaps, not zero.
+- The device leaderboard's Month view has a month picker. Peak power, month kWh and estimated cost come from the new `GET /api/leaderboard/month?month=YYYY-MM` endpoint.
+- Merged pull requests to `main` are tagged and released automatically: Dependabot updates get a patch version, other changes a minor version.
+- End-to-end tests run the built binary against mock plugs in CI (`make e2e`).
+- The dashboard favicon is served as `/favicon.svg`.
 
 ### Changed
 - The release workflow now runs the CI workflow first and only publishes binaries if it passes.
 - The release workflow and CI read the Go version from `go.mod`, which is now pinned to Go 1.27.
 - A missing config file is now an error instead of silently falling back to `config.example.yaml` (mock devices).
 - Unknown modes and extra arguments (such as flags placed after the mode) exit with a usage message instead of starting nothing.
+- On shutdown the API stops first (closing event streams), then the collector, then pending readings are flushed and the database is closed.
+- The Device Leaderboard no longer has a Relay column. Switching a socket on or off is still available from the device dialog.
+- The standby leak detector opens on "Last night" by default.
+
+### Fixed
+- The Tapo driver decodes the base64 nickname that P115 devices return.
+- The mock driver matches the P115: MAC address format, a fixed 230 V, and daily and monthly counters that restart at midnight and the first of the month.
+- The Month view of the device leaderboard shows 0 W peak for a month without data, instead of the current live wattage.
+- Timestamps are compared in the local time zone for breakdown and standby queries, so day boundaries match what is shown.
 
 ## [0.1.2] - 2026-10-23
 
