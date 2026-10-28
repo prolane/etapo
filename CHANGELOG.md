@@ -9,10 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - GitHub Actions CI workflow: formatting check, `go vet`, `go test -race`, and a cross-compile smoke test for all release targets on every push and pull request.
+- `etapo --help` describes the `run`, `collect` and `serve` modes and the flag order.
+- The configuration is validated at startup. Invalid settings, unknown plug types, missing or placeholder Tapo credentials, and Tapo plugs without a valid IP are reported with the field name.
 
 ### Changed
 - The release workflow now runs the CI workflow first and only publishes binaries if it passes.
 - The release workflow and CI read the Go version from `go.mod`, which is now pinned to Go 1.27.
+- A missing config file is now an error instead of silently falling back to `config.example.yaml` (mock devices).
+- Unknown modes and extra arguments (such as flags placed after the mode) exit with a usage message instead of starting nothing.
 
 ## [0.1.2] - 2026-10-23
 

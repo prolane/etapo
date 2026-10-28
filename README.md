@@ -116,7 +116,7 @@ Flags must come before the mode, because Go stops parsing flags at the first pos
 | `collect` | `etapo --config config.yaml collect` | Collector and storage only (use when the API runs separately) |
 | `serve` | `etapo --config config.yaml serve` | Storage, API, and web UI only (reads data written by `collect`) |
 
-If `--config` points to a missing file, etapo falls back to `config.example.yaml` (mock devices) and prints a warning.
+A missing config file is an error; etapo never falls back to the example config. Run `etapo --help` for the same summary.
 
 ---
 

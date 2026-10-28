@@ -1,9 +1,12 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -109,7 +112,95 @@ func Load(filePath string) (*Config, error) {
 		cfg.TapoAuth.Password = pass
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config %q: %w", filePath, err)
+	}
+
 	return cfg, nil
+}
+
+// placeholderValues are the example values from config.example.yaml that must be replaced before use.
+var placeholderValues = []string{"your-tplink-email@example.com", "your-tplink-password"}
+
+// Validate checks the configuration for values that would make the daemon fail or misbehave at runtime.
+func (c *Config) Validate() error {
+	var errs []error
+
+	if c.Server.Port < 1 || c.Server.Port > 65535 {
+		errs = append(errs, fmt.Errorf("server.port must be between 1 and 65535, got %d", c.Server.Port))
+	}
+	if c.Storage.DBPath == "" {
+		errs = append(errs, errors.New("storage.db_path must not be empty"))
+	}
+	if c.Storage.FlushIntervalSec <= 0 {
+		errs = append(errs, fmt.Errorf("storage.flush_interval_sec must be greater than 0, got %d", c.Storage.FlushIntervalSec))
+	}
+	if c.Storage.MaxBufferSize <= 0 {
+		errs = append(errs, fmt.Errorf("storage.max_buffer_size must be greater than 0, got %d", c.Storage.MaxBufferSize))
+	}
+	if c.Storage.RetentionDays <= 0 {
+		errs = append(errs, fmt.Errorf("storage.retention_days must be greater than 0, got %d", c.Storage.RetentionDays))
+	}
+	if c.Collector.PollIntervalSec <= 0 {
+		errs = append(errs, fmt.Errorf("collector.poll_interval_sec must be greater than 0, got %d", c.Collector.PollIntervalSec))
+	}
+	if c.Billing.CostPerKWh < 0 {
+		errs = append(errs, fmt.Errorf("billing.cost_per_kwh must not be negative, got %v", c.Billing.CostPerKWh))
+	}
+
+	seen := make(map[string]bool)
+	for i, p := range c.Plugs {
+		prefix := fmt.Sprintf("plugs[%d]", i)
+		if p.ID == "" {
+			errs = append(errs, fmt.Errorf("%s: id must not be empty", prefix))
+		} else if seen[p.ID] {
+			errs = append(errs, fmt.Errorf("%s: duplicate id %q", prefix, p.ID))
+		}
+		seen[p.ID] = true
+		prefix = fmt.Sprintf("plugs[%d] (%s)", i, p.ID)
+
+		switch p.Type {
+		case "mock", "":
+		case "tapo":
+			if net.ParseIP(p.IP) == nil {
+				errs = append(errs, fmt.Errorf("%s: ip must be a valid IP address for type \"tapo\", got %q", prefix, p.IP))
+			}
+			username := p.Username
+			if username == "" {
+				username = c.TapoAuth.Username
+			}
+			password := p.Password
+			if password == "" {
+				password = c.TapoAuth.Password
+			}
+			if username == "" {
+				errs = append(errs, fmt.Errorf("%s: no Tapo username; set tapo_auth.username, TAPO_USERNAME, or the plug's username", prefix))
+			} else if isPlaceholder(username) {
+				errs = append(errs, fmt.Errorf("%s: Tapo username is still the example placeholder %q", prefix, username))
+			}
+			if password == "" {
+				errs = append(errs, fmt.Errorf("%s: no Tapo password; set tapo_auth.password, TAPO_PASSWORD, or the plug's password", prefix))
+			} else if isPlaceholder(password) {
+				errs = append(errs, fmt.Errorf("%s: Tapo password is still the example placeholder", prefix))
+			}
+		default:
+			errs = append(errs, fmt.Errorf("%s: unknown type %q (use \"tapo\" or \"mock\")", prefix, p.Type))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+func isPlaceholder(value string) bool {
+	if strings.HasPrefix(value, "REPLACE_WITH_") {
+		return true
+	}
+	for _, p := range placeholderValues {
+		if value == p {
+			return true
+		}
+	}
+	return false
 }
 
 // FlushDuration returns the flush interval as time.Duration.

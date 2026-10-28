@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,23 +23,51 @@ var (
 	version = "0.1.0"
 )
 
+var modes = []string{"run", "collect", "serve"}
+
+func usage() {
+	fmt.Fprintf(flag.CommandLine.Output(), `Etapo %s - energy monitoring for Tapo P110/P115 smart sockets
+
+Usage:
+  etapo [--config FILE] [run|collect|serve]
+
+Modes:
+  run       Collector, storage, API and web UI in one process (default)
+  collect   Collector and storage only; use when the API runs separately
+  serve     Storage, API and web UI only; reads data written by collect
+
+Options:
+`, version)
+	flag.PrintDefaults()
+	fmt.Fprintf(flag.CommandLine.Output(), `
+Flags must come before the mode, for example: etapo --config config.yaml run
+`)
+}
+
 func main() {
 	var configPath string
 	flag.StringVar(&configPath, "config", "config.yaml", "Path to YAML configuration file")
+	flag.Usage = usage
 	flag.Parse()
-
-	// Default fallback to config.example.yaml if config.yaml doesn't exist
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		if _, errEx := os.Stat("config.example.yaml"); errEx == nil {
-			log.Printf("[Etapo] WARNING: config %q not found, falling back to config.example.yaml (mock devices)", configPath)
-			configPath = "config.example.yaml"
-		}
-	}
 
 	mode := "run"
 	args := flag.Args()
-	if len(args) > 0 {
+	if len(args) > 1 {
+		fmt.Fprintf(os.Stderr, "etapo: too many arguments: %s (flags must come before the mode)\n\n", strings.Join(args, " "))
+		flag.Usage()
+		os.Exit(2)
+	}
+	if len(args) == 1 {
 		mode = args[0]
+	}
+	if !slices.Contains(modes, mode) {
+		fmt.Fprintf(os.Stderr, "etapo: unknown mode %q (use run, collect or serve)\n\n", mode)
+		flag.Usage()
+		os.Exit(2)
+	}
+
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		log.Fatalf("Config file %q does not exist. Create it (for example: cp config.example.yaml config.yaml) or pass --config FILE.", configPath)
 	}
 
 	log.Printf("[Etapo v%s] Initializing in %q mode (config: %s)...", version, mode, configPath)
