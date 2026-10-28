@@ -93,14 +93,18 @@ Prefer the `Makefile` targets (`make help` lists them): `make build`, `make run`
 
 ## 7. Releases & Versioning
 
-- **Versioning:** Semantic versioning with `vMAJOR.MINOR.PATCH` tags (currently pre-1.0). Bug fixes bump PATCH, new features bump MINOR.
-- **Current version:** `v0.1.2` (latest tag on `origin`). Check with `git ls-remote --tags origin`.
-- **Release trigger:** Pushing a `v*` tag runs `.github/workflows/release.yml`, which cross-compiles all targets (linux arm64/armv7/amd64, darwin arm64/amd64, windows amd64), packages them with checksums, and publishes a GitHub Release.
-- **Rule for AI agents:** Do NOT create or push a tag without explicit user confirmation. When unreleased commits exist on `main` that fix bugs or add features, ask the user whether to cut a new release and propose the next version number.
-- **Changelog:** `CHANGELOG.md` follows Keep a Changelog. Before tagging, move the `[Unreleased]` entries under a new `[X.Y.Z] - YYYY-MM-DD` heading and add a link-free entry per change.
-- **CI:** `.github/workflows/ci.yml` runs gofmt, vet, `go test -race` and a cross-compile check. The release workflow runs CI first and does not publish if it fails.
-- **Security:** `.github/workflows/security.yml` runs `govulncheck` on push, pull request and weekly. `.github/dependabot.yml` opens weekly update PRs for Go modules and GitHub Actions. `.github/workflows/dependabot-auto-merge.yml` approves and auto-merges minor and patch updates once required checks pass; major updates need manual review, except GitHub Actions updates (including major) which are auto-merged once checks pass. Secret scanning and push protection are enabled in GitHub settings (not in a workflow). `.github/workflows/codeql.yml` runs CodeQL static analysis for Go and GitHub Actions on push, pull request and weekly; results appear under the repo's Security tab. All GitHub Actions are pinned to full commit SHAs with the version as a trailing comment; Dependabot proposes updates to these pins. Known false positives are dismissed in CodeQL with a reference to the ADR in `DECISIONS.md`.
-- **Release steps (after confirmation):**
+- **Versioning:** Semantic versioning with `vMAJOR.MINOR.PATCH` tags (currently pre-1.0).
+- **Current version:** the latest tag on `origin`. Check with `git ls-remote --tags origin`.
+- **Automatic releases:** Merging a pull request to `main` creates the next tag and publishes a release (`.github/workflows/auto-tag.yml`):
+  - Dependabot PRs bump the PATCH version.
+  - All other PRs (features and fixes made by us) bump the MINOR version and reset PATCH to 0.
+- **Release build:** `.github/workflows/release.yml` cross-compiles all targets (linux arm64/armv7/amd64, darwin arm64/amd64, windows amd64), packages them with checksums, and publishes a GitHub Release. It runs from a tag push or from `auto-tag.yml`.
+- **Rule for AI agents:** Do NOT create or push tags by hand. A release happens by merging to `main`. Before opening or merging a PR that changes behaviour, make sure the next version is what the user expects; ask first when the version matters.
+- **Changelog:** `CHANGELOG.md` follows Keep a Changelog. Add a link-free entry under `[Unreleased]` for each user-visible change in the same PR. Automatic tagging does not move these entries; the maintainer renames `[Unreleased]` to the new version when it is released.
+- **CI:** `.github/workflows/ci.yml` runs gofmt, vet, `go test -race`, the end-to-end tests (`make e2e`) and a cross-compile check. The release workflow runs CI first and does not publish if it fails.
+- **End-to-end tests:** `e2e/e2e_test.go` builds the binary and runs it with two mock plugs. It checks the dashboard, API validation, polling, relay control, the event stream, persistence across a restart, and CLI handling. Keep it passing when changing the API or the CLI. Mock drivers must keep matching the real P115 (see the `tapo` driver for the units and fields).
+- **Security:** `.github/workflows/security.yml` runs `govulncheck` on push, pull request and weekly. `.github/dependabot.yml` opens weekly update PRs for Go modules and GitHub Actions. `.github/workflows/dependabot-auto-merge.yml` approves and auto-merges minor and patch updates once required checks pass (each merge then gets a patch release, see Automatic releases); major updates need manual review, except GitHub Actions updates (including major) which are auto-merged once checks pass. Secret scanning and push protection are enabled in GitHub settings (not in a workflow). `.github/workflows/codeql.yml` runs CodeQL static analysis for Go and GitHub Actions on push, pull request and weekly; results appear under the repo's Security tab. All GitHub Actions are pinned to full commit SHAs with the version as a trailing comment; Dependabot proposes updates to these pins. Known false positives are dismissed in CodeQL with a reference to the ADR in `DECISIONS.md`.
+- **Manual release (emergency only, after user confirmation):**
   ```bash
   git tag -a vX.Y.Z -m "Release vX.Y.Z: <summary>"
   git push origin vX.Y.Z
