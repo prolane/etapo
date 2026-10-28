@@ -32,3 +32,13 @@ func TestParseEnergyUsageUnits(t *testing.T) {
 		t.Errorf("expected 12.3 kWh from 12300 Wh, got %f", usage.EnergyMonthKWh)
 	}
 }
+
+func TestDecodeNickname(t *testing.T) {
+	// Encoded by a real P115 for the nickname "Kantoor netwerk"
+	if got := decodeNickname("S2FudG9vciBuZXR3ZXJr"); got != "Kantoor netwerk" {
+		t.Errorf("expected decoded nickname, got %q", got)
+	}
+	if got := decodeNickname("Plain name"); got != "Plain name" {
+		t.Errorf("expected invalid base64 to be returned unchanged, got %q", got)
+	}
+}
