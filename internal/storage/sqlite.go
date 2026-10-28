@@ -298,29 +298,19 @@ func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64) ([]models.Pl
 			p.AvgWattsToday = math.Round(avgToday.Float64*10) / 10
 		}
 
-		// 2. Standby/Vampire Load (lowest Watts recorded between 02:00 and 05:00 AM)
+		// 2. Standby/Vampire Load (lowest Watts recorded between 02:00 and 05:00 local time).
+		// Without readings in that window there is no baseline, so none is reported.
+		var nightSamples int
 		var standby sql.NullFloat64
 		_ = s.db.QueryRowContext(ctx, `
-			SELECT MIN(power_watts)
+			SELECT COUNT(*), MIN(CASE WHEN power_watts > 0.05 THEN power_watts END)
 			FROM energy_readings
-			WHERE plug_id = ? AND strftime('%H', substr(timestamp, 1, 19), 'localtime') IN ('02', '03', '04') AND power_watts > 0.05
-		`, p.ID).Scan(&standby)
+			WHERE plug_id = ? AND strftime('%H', substr(timestamp, 1, 19), 'localtime') IN ('02', '03', '04')
+		`, p.ID).Scan(&nightSamples, &standby)
 
-		// Fallback if night data not yet available: lowest recorded active power over 24h
-		if !standby.Valid || standby.Float64 <= 0 {
-			_ = s.db.QueryRowContext(ctx, `
-				SELECT MIN(power_watts)
-				FROM energy_readings
-				WHERE plug_id = ? AND power_watts > 0.05 AND timestamp >= ?
-			`, p.ID, time.Now().UTC().Add(-24*time.Hour)).Scan(&standby)
-		}
-
-		if standby.Valid && standby.Float64 > 0 {
+		p.HasStandbyData = nightSamples > 0
+		if p.HasStandbyData && standby.Valid {
 			p.StandbyWatts = math.Round(standby.Float64*10) / 10
-		} else if p.LatestReading != nil && !p.IsOn {
-			p.StandbyWatts = math.Round(p.LatestReading.PowerWatts*10) / 10
-		} else if p.LatestReading != nil {
-			p.StandbyWatts = math.Round(math.Min(p.LatestReading.PowerWatts, 1.5)*10) / 10
 		}
 
 		// Annualized standby cost: StandbyWatts * 24 * 365.25 / 1000 * costPerKWh
@@ -458,6 +448,9 @@ func (s *Storage) GetSummary(ctx context.Context, currency string, costPerKWh fl
 			summary.TotalPowerWatts += p.LatestReading.PowerWatts
 			summary.TotalEnergyToday += p.LatestReading.EnergyTodayKWh
 			summary.TotalEnergyMonth += p.LatestReading.EnergyMonthKWh
+		}
+		if p.HasStandbyData {
+			summary.StandbyDataAvailable = true
 		}
 		summary.TotalStandbyWatts += p.StandbyWatts
 		summary.AnnualStandbyWaste += p.AnnualStandbyCost

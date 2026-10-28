@@ -117,6 +117,7 @@
         <p class="text-xs text-slate-400 mt-1.5 font-medium">
           Waste: <span id="stat-annual-waste" class="text-purple-300 font-semibold">€0.00</span> / year
         </p>
+        <p id="stat-standby-note" class="hidden text-[11px] text-amber-400 mt-1">No readings from 02:00–05:00 yet</p>
       </div>
     </div>
 
@@ -310,8 +311,10 @@
         document.getElementById('stat-burn-rate').textContent = (data.live_burn_rate_per_hour || 0).toFixed(3);
         document.getElementById('stat-today-energy').textContent = (data.total_energy_today_kwh || 0).toFixed(2);
         document.getElementById('stat-today-cost').textContent = `${currencySymbol}${(data.total_cost_today || 0).toFixed(2)}`;
-        document.getElementById('stat-standby-watts').textContent = (data.total_standby_watts || 0).toFixed(1);
-        document.getElementById('stat-annual-waste').textContent = `${currencySymbol}${(data.annual_standby_waste || 0).toFixed(2)}`;
+        const hasStandby = data.standby_data_available;
+        document.getElementById('stat-standby-watts').textContent = hasStandby ? (data.total_standby_watts || 0).toFixed(1) : '–';
+        document.getElementById('stat-annual-waste').textContent = hasStandby ? `${currencySymbol}${(data.annual_standby_waste || 0).toFixed(2)}` : '–';
+        document.getElementById('stat-standby-note').classList.toggle('hidden', hasStandby);
       } catch (err) {
         console.error('Failed to fetch summary:', err);
       }
@@ -357,30 +360,42 @@
       const sorted = [...plugsData].sort((a, b) => (b.annual_standby_cost || 0) - (a.annual_standby_cost || 0));
 
       grid.innerHTML = sorted.map(p => {
+        const hasData = p.has_standby_data;
         const standbyW = p.standby_watts || 0;
         const annualCost = p.annual_standby_cost || 0;
-        const isHigh = standbyW > 3.0;
+        const isHigh = hasData && standbyW > 3.0;
+
+        let badgeClass = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        let badgeText = 'Low Standby';
+        if (!hasData) {
+          badgeClass = 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
+          badgeText = 'No Night Data';
+        } else if (isHigh) {
+          badgeClass = 'bg-red-500/10 text-red-400 border border-red-500/20';
+          badgeText = 'High Standby';
+        }
 
         return `
           <div onclick="openModal('${p.id}')" class="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80 hover:border-purple-500/40 transition cursor-pointer group flex flex-col justify-between">
             <div>
               <div class="flex items-center justify-between">
                 <span class="text-xs font-bold text-white group-hover:text-purple-400 transition truncate">${escapeHTML(p.name)}</span>
-                <span class="text-[10px] px-1.5 py-0.5 rounded ${isHigh ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}">
-                  ${isHigh ? 'High Standby' : 'Low Standby'}
+                <span class="text-[10px] px-1.5 py-0.5 rounded ${badgeClass}">
+                  ${badgeText}
                 </span>
               </div>
               <p class="text-[11px] text-slate-500 mt-0.5">${escapeHTML(p.category || 'General')}</p>
+              ${hasData ? '' : '<p class="text-[11px] text-amber-400 mt-1">No readings from 02:00–05:00 yet</p>'}
             </div>
 
             <div class="mt-4 pt-3 border-t border-slate-800/60 flex items-end justify-between">
               <div>
                 <p class="text-[10px] uppercase text-slate-400">Night Baseline</p>
-                <p class="text-lg font-mono font-bold text-purple-400">${standbyW.toFixed(1)} <span class="text-xs">W</span></p>
+                <p class="text-lg font-mono font-bold text-purple-400">${hasData ? `${standbyW.toFixed(1)} <span class="text-xs">W</span>` : '<span class="text-sm text-slate-500">No data</span>'}</p>
               </div>
               <div class="text-right">
                 <p class="text-[10px] uppercase text-slate-400">Est. Year Cost</p>
-                <p class="text-sm font-mono font-bold text-white">${currencySymbol}${annualCost.toFixed(2)}</p>
+                <p class="text-sm font-mono font-bold text-white">${hasData ? `${currencySymbol}${annualCost.toFixed(2)}` : '–'}</p>
               </div>
             </div>
           </div>
@@ -644,8 +659,8 @@
       document.getElementById('modal-live-watts').textContent = `${liveW.toFixed(1)} W`;
       document.getElementById('modal-peak-watts').textContent = `${(p.peak_watts_today || liveW).toFixed(1)} W`;
       document.getElementById('modal-runtime').textContent = `${(p.runtime_today_hours || 0).toFixed(1)} h`;
-      document.getElementById('modal-standby').textContent = `${(p.standby_watts || 0).toFixed(1)} W`;
-      document.getElementById('modal-standby-cost').textContent = `${currencySymbol}${(p.annual_standby_cost || 0).toFixed(2)} / yr`;
+      document.getElementById('modal-standby').textContent = p.has_standby_data ? `${(p.standby_watts || 0).toFixed(1)} W` : 'No data';
+      document.getElementById('modal-standby-cost').textContent = p.has_standby_data ? `${currencySymbol}${(p.annual_standby_cost || 0).toFixed(2)} / yr` : 'No readings 02:00–05:00 yet';
 
       const btn = document.getElementById('modal-toggle-btn');
       const text = document.getElementById('modal-toggle-text');
