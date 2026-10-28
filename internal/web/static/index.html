@@ -472,7 +472,7 @@
         const isOn = p.is_on;
         const liveW = isOn ? r.power_watts : 0;
         const board = boardValues(p);
-        const peakW = board.peak || liveW;
+        const peakW = isMonth ? board.peak : (board.peak || liveW);
         const monthKwh = board.month;
         const monthCost = board.cost;
 
