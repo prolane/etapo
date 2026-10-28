@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestBreakdownStart(t *testing.T) {
+func TestPeriodStart(t *testing.T) {
 	now := time.Now()
 	tests := []struct {
 		name       string
@@ -27,7 +27,7 @@ func TestBreakdownStart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := httptest.NewRequest("GET", "/api/breakdown?"+tt.query, nil)
-			_, err := breakdownStart(r, tt.rangeParam)
+			_, err := periodStart(r, tt.rangeParam)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("wantErr=%v, got %v", tt.wantErr, err)
 			}

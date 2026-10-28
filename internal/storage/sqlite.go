@@ -245,7 +245,6 @@ func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64, standbyPerio
 	var result []models.PlugWithLatest
 	midnightToday := startOfLocalDay(time.Now())
 	now := time.Now()
-	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
 	standbySince := startOfLocalDay(now).AddDate(0, 0, -(max(standbyPeriod.Nights, 1) - 1))
 
 	for rows.Next() {
@@ -299,20 +298,6 @@ func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64, standbyPerio
 
 		if avgToday.Valid {
 			p.AvgWattsToday = math.Round(avgToday.Float64*10) / 10
-		}
-
-		// 1b. Peak power recorded this month
-		var peakMonth sql.NullFloat64
-		_ = s.db.QueryRowContext(ctx, `
-			SELECT MAX(power_watts)
-			FROM energy_readings
-			WHERE plug_id = ? AND timestamp >= ?
-		`, p.ID, startOfMonth.UTC()).Scan(&peakMonth)
-
-		if peakMonth.Valid {
-			p.PeakWattsMonth = math.Round(peakMonth.Float64*10) / 10
-		} else if p.LatestReading != nil {
-			p.PeakWattsMonth = p.LatestReading.PowerWatts
 		}
 
 		// 2. Standby/Vampire Load: average power inside the standby window over the selected nights.

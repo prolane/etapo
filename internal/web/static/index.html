@@ -196,6 +196,13 @@
             <button onclick="setLeaderboardPeriod('today')" id="btn-board-today" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Today</button>
             <button onclick="setLeaderboardPeriod('month')" id="btn-board-month" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Month</button>
           </div>
+          <!-- Month Picker -->
+          <div id="leaderboard-month-picker" class="items-center gap-1 text-xs" style="display: none">
+            <button onclick="stepLeaderboardMonth(-1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition" title="Previous">‹</button>
+            <input type="month" id="leaderboard-month-input" onchange="setLeaderboardMonth(this.value)" class="px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
+            <button id="btn-leaderboard-next" onclick="stepLeaderboardMonth(1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40 disabled:hover:text-slate-300" title="Next">›</button>
+            <button id="btn-leaderboard-now" onclick="resetLeaderboardMonth()" class="hidden px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition">This month</button>
+          </div>
           <!-- Category Filter Chips -->
           <div id="category-filters" class="flex flex-wrap items-center gap-1.5 text-xs">
             <button onclick="filterCategory('All')" class="cat-chip px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium" data-cat="All">All</button>
@@ -307,6 +314,8 @@
     let breakdownMonth = breakdownDate.slice(0, 7);
     let breakdownChartType = 'stacked';
     let leaderboardPeriod = 'today';
+    let leaderboardMonth = localDateString(new Date()).slice(0, 7);
+    let monthStats = {};
     let standbyWindow = '02:00 – 05:00';
     let standbyNights = 7;
     let stackedChartInstance = null;
@@ -462,8 +471,10 @@
         const r = p.latest_reading || { power_watts: 0, energy_today_kwh: 0, energy_month_kwh: 0 };
         const isOn = p.is_on;
         const liveW = isOn ? r.power_watts : 0;
-        const peakW = (isMonth ? p.peak_watts_month : p.peak_watts_today) || liveW;
-        const monthCost = p.estimated_month_cost || 0;
+        const board = boardValues(p);
+        const peakW = board.peak || liveW;
+        const monthKwh = board.month;
+        const monthCost = board.cost;
 
         return `
           <tr class="hover:bg-slate-800/40 transition cursor-pointer group" onclick="openModal('${p.id}')">
@@ -494,7 +505,7 @@
             </td>`}
             <!-- Month kWh -->
             <td class="py-3 px-3 text-right text-slate-300">
-              ${r.energy_month_kwh.toFixed(2)}
+              ${monthKwh.toFixed(2)}
             </td>
             <!-- Monthly Cost -->
             <td class="py-3 px-3 text-right font-semibold text-white">
@@ -505,16 +516,26 @@
       }).join('');
     }
 
+    // Peak, month kWh and cost for the leaderboard's current period
+    function boardValues(p) {
+      if (leaderboardPeriod === 'month') {
+        const ms = monthStats[p.id] || {};
+        return { peak: ms.peak_watts || 0, month: ms.energy_kwh || 0, cost: ms.estimated_cost || 0 };
+      }
+      const r = p.latest_reading || { energy_month_kwh: 0 };
+      return { peak: p.peak_watts_today || 0, month: r.energy_month_kwh || 0, cost: p.estimated_month_cost || 0 };
+    }
+
     function getSortValue(p, col) {
       const r = p.latest_reading || { power_watts: 0, energy_today_kwh: 0, energy_month_kwh: 0 };
       switch (col) {
         case 'name': return p.name.toLowerCase();
         case 'category': return (p.category || '').toLowerCase();
         case 'watts': return p.is_on ? r.power_watts : 0;
-        case 'peak': return (leaderboardPeriod === 'month' ? p.peak_watts_month : p.peak_watts_today) || 0;
+        case 'peak': return boardValues(p).peak;
         case 'today': return r.energy_today_kwh || 0;
-        case 'month': return r.energy_month_kwh || 0;
-        case 'cost': return p.estimated_month_cost || 0;
+        case 'month': return boardValues(p).month;
+        case 'cost': return boardValues(p).cost;
         default: return 0;
       }
     }
@@ -556,7 +577,62 @@
       }
       document.getElementById('th-watts').classList.toggle('hidden', period === 'month');
       document.getElementById('th-today').classList.toggle('hidden', period === 'month');
-      renderLeaderboard();
+      document.getElementById('leaderboard-month-picker').style.display = period === 'month' ? 'flex' : 'none';
+      if (period === 'month') {
+        updateLeaderboardControls();
+        loadLeaderboardMonth();
+      } else {
+        renderLeaderboard();
+      }
+    }
+
+    async function loadLeaderboardMonth() {
+      try {
+        const res = await fetch(`/api/leaderboard/month?month=${leaderboardMonth}`);
+        if (!res.ok) return;
+        const rows = await res.json();
+        monthStats = Object.fromEntries(rows.map(ms => [ms.plug_id, ms]));
+        renderLeaderboard();
+      } catch (err) {
+        console.error('Failed to load month leaderboard:', err);
+      }
+    }
+
+    function setLeaderboardMonth(value) {
+      if (!value) return;
+      leaderboardMonth = value;
+      clampLeaderboardMonth();
+      updateLeaderboardControls();
+      loadLeaderboardMonth();
+    }
+
+    function stepLeaderboardMonth(delta) {
+      const [y, m] = leaderboardMonth.split('-').map(Number);
+      leaderboardMonth = localDateString(new Date(y, m - 1 + delta, 1)).slice(0, 7);
+      clampLeaderboardMonth();
+      updateLeaderboardControls();
+      loadLeaderboardMonth();
+    }
+
+    function resetLeaderboardMonth() {
+      leaderboardMonth = localDateString(new Date()).slice(0, 7);
+      updateLeaderboardControls();
+      loadLeaderboardMonth();
+    }
+
+    function clampLeaderboardMonth() {
+      const current = localDateString(new Date()).slice(0, 7);
+      if (leaderboardMonth > current) leaderboardMonth = current;
+    }
+
+    function updateLeaderboardControls() {
+      const current = localDateString(new Date()).slice(0, 7);
+      const atCurrent = leaderboardMonth === current;
+      const input = document.getElementById('leaderboard-month-input');
+      input.value = leaderboardMonth;
+      input.max = current;
+      document.getElementById('btn-leaderboard-next').disabled = atCurrent;
+      document.getElementById('btn-leaderboard-now').classList.toggle('hidden', atCurrent);
     }
 
     function sortTable(col) {
@@ -885,9 +961,6 @@
             if (r.power_watts > (p.peak_watts_today || 0)) {
               p.peak_watts_today = r.power_watts;
             }
-            if (r.power_watts > (p.peak_watts_month || 0)) {
-              p.peak_watts_month = r.power_watts;
-            }
           }
 
           // Refresh live views
@@ -916,6 +989,7 @@
     // Auto-refresh stacked chart every 30 seconds
     setInterval(() => {
       loadBreakdownChart();
+      if (leaderboardPeriod === 'month') loadLeaderboardMonth();
     }, 30000);
 
     window.addEventListener('DOMContentLoaded', init);

@@ -53,13 +53,20 @@ type PlugWithLatest struct {
 	Plug
 	LatestReading      *EnergyReading `json:"latest_reading,omitempty"`
 	PeakWattsToday     float64        `json:"peak_watts_today"`     // Peak power recorded today (Max W)
-	PeakWattsMonth     float64        `json:"peak_watts_month"`     // Peak power recorded this month (Max W)
 	AvgWattsToday      float64        `json:"avg_watts_today"`      // Average power consumption today
 	RuntimeTodayHours  float64        `json:"runtime_today_hours"`  // Hours active (> threshold) today
 	StandbyWatts       float64        `json:"standby_watts"`        // Baseline vampire/standby load (02:00-05:00 AM)
 	HasStandbyData     bool           `json:"has_standby_data"`     // Readings exist in the 02:00-05:00 window
 	AnnualStandbyCost  float64        `json:"annual_standby_cost"`  // Projected cost of standby per year (€/yr)
 	EstimatedMonthCost float64        `json:"estimated_month_cost"` // Projected monthly electricity cost (€/mo)
+}
+
+// MonthStats is one plug's peak power and energy for a calendar month.
+type MonthStats struct {
+	PlugID        string  `json:"plug_id"`
+	PeakWatts     float64 `json:"peak_watts"`
+	EnergyKWh     float64 `json:"energy_kwh"`
+	EstimatedCost float64 `json:"estimated_cost"`
 }
 
 // StandbyPeriod selects the readings used for the standby baseline.
