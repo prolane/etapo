@@ -66,6 +66,7 @@ type PlugWithLatest struct {
 type StandbyPeriod struct {
 	StartMinute int // Minutes after local midnight when the window starts
 	EndMinute   int // Minutes after local midnight when the window ends; earlier than StartMinute wraps past midnight
+	Nights      int // Number of nights to average, counting back from the most recent night (1 = last night)
 }
 
 // SystemSummary provides top-level metrics across all sockets for the top KPI bar.

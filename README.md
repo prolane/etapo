@@ -148,6 +148,20 @@ A missing config file is an error; etapo never falls back to the example config.
 
 ---
 
+## Standby Baseline
+
+The standby (vampire load) figure for each socket is its average power inside a time window, using the server's local time zone. The dashboard shows it for the last night or the last 7 nights. The default window is 02:00 to 05:00. To change it, set `standby` in `config.yaml` and restart etapo:
+
+```yaml
+standby:
+  start: "02:00"
+  end: "05:00"
+```
+
+An end earlier than the start wraps past midnight (for example 23:00 to 05:00). Until there are readings inside the window, the dashboard shows "No data" instead of a value.
+
+---
+
 ## Cross-Compiling for Raspberry Pi 3
 
 Compile directly from your Mac or PC to a single static binary:
@@ -206,8 +220,8 @@ sudo systemctl status etapo
 | Endpoint | Method | Description |
 |---|---|---|
 | `/health` | `GET` | Health check endpoint |
-| `/api/summary` | `GET` | Aggregated total live Watts, today's kWh, and estimated cost |
-| `/api/plugs` | `GET` | List all plugs with latest telemetry and on/off status |
+| `/api/summary?nights=N` | `GET` | Aggregated total live Watts, today's kWh, estimated cost and standby. `nights` (1-365, default 7) sets how many nights the standby average covers |
+| `/api/plugs?nights=N` | `GET` | List all plugs with latest telemetry, on/off status and standby. `nights` as for `/api/summary` |
 | `/api/plugs/:id` | `GET` | Details for a specific plug |
 | `/api/plugs/:id/history?range=1h\|24h\|7d` | `GET` | Time-series data points for charting |
 | `/api/plugs/:id/power` | `POST` | Toggle plug relay: `{"on": true\|false}` |

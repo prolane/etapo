@@ -73,7 +73,7 @@ func TestStandbyRequiresNightReadings(t *testing.T) {
 	}
 }
 
-var testStandby = models.StandbyPeriod{StartMinute: 120, EndMinute: 300}
+var testStandby = models.StandbyPeriod{StartMinute: 120, EndMinute: 300, Nights: 7}
 
 func TestStandbyWindowIsConfigurable(t *testing.T) {
 	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second, 10)
@@ -96,7 +96,7 @@ func TestStandbyWindowIsConfigurable(t *testing.T) {
 		t.Fatalf("flush failed: %v", err)
 	}
 
-	wrapping := models.StandbyPeriod{StartMinute: 23 * 60, EndMinute: 60}
+	wrapping := models.StandbyPeriod{StartMinute: 23 * 60, EndMinute: 60, Nights: 7}
 	plugs, err := store.GetPlugs(ctx, 0.30, wrapping)
 	if err != nil {
 		t.Fatalf("GetPlugs failed: %v", err)
@@ -105,12 +105,55 @@ func TestStandbyWindowIsConfigurable(t *testing.T) {
 		t.Errorf("23:00-01:00 window: expected 3W from the 23:30 reading, got has=%v watts=%v", plugs[0].HasStandbyData, plugs[0].StandbyWatts)
 	}
 
-	daytime := models.StandbyPeriod{StartMinute: 13 * 60, EndMinute: 14 * 60}
+	daytime := models.StandbyPeriod{StartMinute: 13 * 60, EndMinute: 14 * 60, Nights: 7}
 	plugs, err = store.GetPlugs(ctx, 0.30, daytime)
 	if err != nil {
 		t.Fatalf("GetPlugs failed: %v", err)
 	}
 	if plugs[0].HasStandbyData {
 		t.Errorf("13:00-14:00 window: expected no data, got %v W", plugs[0].StandbyWatts)
+	}
+}
+
+func TestStandbyAveragesWithinSelectedNights(t *testing.T) {
+	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second, 10)
+	if err != nil {
+		t.Fatalf("failed to init storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	if err := store.UpsertPlug(ctx, models.Plug{
+		ID: "p1", Name: "p1", Model: "P115", DriverType: "mock", IP: "192.168.1.100", IsActive: true, IsOn: true,
+	}); err != nil {
+		t.Fatalf("failed to upsert plug: %v", err)
+	}
+
+	today := startOfLocalDay(time.Now())
+	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: today.Add(3 * time.Hour), PowerWatts: 4})
+	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: today.AddDate(0, 0, -3).Add(3 * time.Hour), PowerWatts: 6})
+	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: today.AddDate(0, 0, -8).Add(3 * time.Hour), PowerWatts: 100})
+	if err := store.Flush(); err != nil {
+		t.Fatalf("flush failed: %v", err)
+	}
+
+	window := models.StandbyPeriod{StartMinute: 120, EndMinute: 300}
+
+	window.Nights = 7
+	plugs, err := store.GetPlugs(ctx, 0.30, window)
+	if err != nil {
+		t.Fatalf("GetPlugs failed: %v", err)
+	}
+	if plugs[0].StandbyWatts != 5 {
+		t.Errorf("last 7 nights: expected the average 5W of the two nights in range, got %v", plugs[0].StandbyWatts)
+	}
+
+	window.Nights = 1
+	plugs, err = store.GetPlugs(ctx, 0.30, window)
+	if err != nil {
+		t.Fatalf("GetPlugs failed: %v", err)
+	}
+	if plugs[0].StandbyWatts != 4 {
+		t.Errorf("last night: expected 4W from last night only, got %v", plugs[0].StandbyWatts)
 	}
 }

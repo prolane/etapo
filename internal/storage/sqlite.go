@@ -246,6 +246,7 @@ func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64, standbyPerio
 	midnightToday := startOfLocalDay(time.Now())
 	now := time.Now()
 	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+	standbySince := startOfLocalDay(now).AddDate(0, 0, -(max(standbyPeriod.Nights, 1) - 1))
 
 	for rows.Next() {
 		var p models.PlugWithLatest
@@ -314,21 +315,21 @@ func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64, standbyPerio
 			p.PeakWattsMonth = p.LatestReading.PowerWatts
 		}
 
-		// 2. Standby/Vampire Load (lowest Watts recorded inside the standby window, local time).
+		// 2. Standby/Vampire Load: average power inside the standby window over the selected nights.
 		// Without readings in that window there is no baseline, so none is reported.
-		var nightSamples int
-		var standby sql.NullFloat64
+		var windowSamples int
+		var standbyAvg sql.NullFloat64
 		windowSQL, windowArgs := standbyWindowSQL(standbyPeriod)
 		_ = s.db.QueryRowContext(ctx, `
-			SELECT COUNT(*), MIN(CASE WHEN power_watts > 0.05 THEN power_watts END)
+			SELECT COUNT(*), AVG(power_watts)
 			FROM energy_readings
-			WHERE plug_id = ? AND `+windowSQL,
-			append([]any{p.ID}, windowArgs...)...,
-		).Scan(&nightSamples, &standby)
+			WHERE plug_id = ? AND timestamp >= ? AND `+windowSQL,
+			append([]any{p.ID, standbySince.UTC()}, windowArgs...)...,
+		).Scan(&windowSamples, &standbyAvg)
 
-		p.HasStandbyData = nightSamples > 0
-		if p.HasStandbyData && standby.Valid {
-			p.StandbyWatts = math.Round(standby.Float64*10) / 10
+		p.HasStandbyData = windowSamples > 0
+		if p.HasStandbyData && standbyAvg.Valid {
+			p.StandbyWatts = math.Round(standbyAvg.Float64*10) / 10
 		}
 
 		// Annualized standby cost: StandbyWatts * 24 * 365.25 / 1000 * costPerKWh

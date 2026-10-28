@@ -87,7 +87,7 @@ func TestAPIServer(t *testing.T) {
 	}
 
 	// Verify plug is now OFF in storage
-	plug, err := store.GetPlug(context.Background(), "p1", 0.30, models.StandbyPeriod{StartMinute: 120, EndMinute: 300})
+	plug, err := store.GetPlug(context.Background(), "p1", 0.30, models.StandbyPeriod{StartMinute: 120, EndMinute: 300, Nights: 7})
 	if err != nil || plug == nil {
 		t.Fatalf("failed to get plug: %v", err)
 	}

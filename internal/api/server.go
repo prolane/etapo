@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -87,9 +88,9 @@ func (s *Server) handlePlugs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	standby, err := s.standbyPeriod()
+	standby, err := s.standbyPeriod(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -123,9 +124,9 @@ func (s *Server) handleBreakdown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	standby, err := s.standbyPeriod()
+	standby, err := s.standbyPeriod(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -178,9 +179,9 @@ func (s *Server) handlePlugSubroutes(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		standby, err := s.standbyPeriod()
+		standby, err := s.standbyPeriod(r)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -278,9 +279,9 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	standby, err := s.standbyPeriod()
+	standby, err := s.standbyPeriod(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -295,13 +296,21 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, summary)
 }
 
-// standbyPeriod returns the configured standby window as minutes after local midnight.
-func (s *Server) standbyPeriod() (models.StandbyPeriod, error) {
+// standbyPeriod returns the configured standby window and the number of nights from ?nights=N (default 7).
+func (s *Server) standbyPeriod(r *http.Request) (models.StandbyPeriod, error) {
 	start, end, err := s.cfg.StandbyMinutes()
 	if err != nil {
 		return models.StandbyPeriod{}, err
 	}
-	return models.StandbyPeriod{StartMinute: start, EndMinute: end}, nil
+	nights := 7
+	if v := r.URL.Query().Get("nights"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 365 {
+			return models.StandbyPeriod{}, fmt.Errorf("nights must be a whole number from 1 to 365")
+		}
+		nights = n
+	}
+	return models.StandbyPeriod{StartMinute: start, EndMinute: end, Nights: nights}, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

@@ -25,8 +25,9 @@ billing:
   # Cost per kWh to calculate real-time estimated energy expense
   cost_per_kwh: 0.32
 
-# Standby baseline window (local time, HH:MM). Readings inside this window make up
-# the standby figure. An end earlier than the start wraps past midnight.
+# Standby baseline window (local time, HH:MM). The dashboard shows the average power
+# inside this window for the last night or the last 7 nights. An end earlier than
+# the start wraps past midnight.
 standby:
   start: "02:00"
   end: "05:00"
