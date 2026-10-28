@@ -5,7 +5,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 CONFIG ?= config.example.yaml
 
-.PHONY: help build run test vet fmt fmt-check lint ci cross clean
+.PHONY: help build run test e2e vet fmt fmt-check lint ci cross clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -20,6 +20,9 @@ run: ## Run locally with the example config (mock devices)
 test: ## Run all tests with the race detector
 	$(GO) test -race ./...
 
+e2e: ## Build etapo and run the end-to-end tests against mock plugs
+	$(GO) test -tags e2e -race -count=1 ./e2e/
+
 vet: ## Run go vet
 	$(GO) vet ./...
 
@@ -32,7 +35,7 @@ fmt-check: ## Fail if any Go file is not gofmt-clean
 
 lint: fmt-check vet ## Run format check and vet
 
-ci: lint test cross ## Run everything CI runs
+ci: lint test e2e cross ## Run everything CI runs
 
 cross: ## Cross-compile all release targets into dist/
 	@mkdir -p $(DIST)
