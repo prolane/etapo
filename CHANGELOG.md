@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The device detail chart has Today, Last 24 h (5-minute average), Last 7 days (hourly) and Month (4-hour, with a month picker) views. Gaps without readings are shown as breaks. It opens on the period of the widget it was opened from: the standby widget's night or 7-night view, or the leaderboard's Today or Month view.
+
+### Fixed
+- The 24-hour device timeline stopped hours early, because it showed only the oldest readings of the window.
+
 ## [1.0.0] - 2026-10-28
 
 ### Added
