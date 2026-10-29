@@ -325,6 +325,11 @@ func TestAPIInputValidation(t *testing.T) {
 		{"month leaderboard, future month", http.MethodGet, "/api/leaderboard/month?month=2999-01", http.StatusBadRequest},
 		{"month leaderboard, POST", http.MethodPost, "/api/leaderboard/month?month=2026-01", http.StatusMethodNotAllowed},
 		{"history, 24h", http.MethodGet, "/api/plugs/" + plugOffice + "/history?range=24h", http.StatusOK},
+		{"history, today", http.MethodGet, "/api/plugs/" + plugOffice + "/history?range=today", http.StatusOK},
+		{"history, 7 days", http.MethodGet, "/api/plugs/" + plugOffice + "/history?range=7d", http.StatusOK},
+		{"history, current month", http.MethodGet, "/api/plugs/" + plugOffice + "/history?range=month&month=" + time.Now().Format("2006-01"), http.StatusOK},
+		{"history, future month", http.MethodGet, "/api/plugs/" + plugOffice + "/history?range=month&month=2999-01", http.StatusBadRequest},
+		{"history, bad month", http.MethodGet, "/api/plugs/" + plugOffice + "/history?range=month&month=2026-13", http.StatusBadRequest},
 		{"unknown plug", http.MethodGet, "/api/plugs/nope", http.StatusNotFound},
 	}
 	for _, tc := range cases {
@@ -383,7 +388,7 @@ func TestReadingsSurviveRestart(t *testing.T) {
 	inst.plugs(t)
 	waitFor(t, 10*time.Second, "history to be flushed to disk", func() bool {
 		var points []map[string]any
-		return inst.getJSON(t, "/api/plugs/"+plugOffice+"/history?range=1h", &points) == http.StatusOK && len(points) >= 2
+		return inst.getJSON(t, "/api/plugs/"+plugOffice+"/history?range=1h", &points) == http.StatusOK && readingBuckets(points) >= 1
 	})
 	var before []map[string]any
 	inst.getJSON(t, "/api/plugs/"+plugOffice+"/history?range=1h", &before)
@@ -393,9 +398,20 @@ func TestReadingsSurviveRestart(t *testing.T) {
 	restarted := startEtapo(t, dir)
 	var after []map[string]any
 	restarted.getJSON(t, "/api/plugs/"+plugOffice+"/history?range=1h", &after)
-	if len(after) < len(before) {
-		t.Errorf("history after restart has %d points, expected at least %d", len(after), len(before))
+	if readingBuckets(after) < readingBuckets(before) {
+		t.Errorf("history after restart has %d buckets with readings, expected at least %d", readingBuckets(after), readingBuckets(before))
 	}
+}
+
+// readingBuckets counts the history buckets that hold a reading. Buckets without one are null.
+func readingBuckets(points []map[string]any) int {
+	n := 0
+	for _, pt := range points {
+		if pt["power_watts"] != nil {
+			n++
+		}
+	}
+	return n
 }
 
 func TestCLIRejectsBadInvocations(t *testing.T) {

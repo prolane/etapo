@@ -88,11 +88,70 @@ func TestStorageLifecycle(t *testing.T) {
 	}
 
 	// 5. Test History query
-	history, err := store.GetHistory(ctx, "test-plug-1", time.Now().Add(-1*time.Hour), 50)
+	now := time.Now()
+	history, err := store.GetHistory(ctx, "test-plug-1", now.Add(-1*time.Hour).Truncate(time.Minute), now.Add(time.Minute), time.Minute)
 	if err != nil {
 		t.Fatalf("failed to get history: %v", err)
 	}
-	if len(history) != 1 {
-		t.Fatalf("expected 1 history point, got %d", len(history))
+	if readings := countReadings(history); len(readings) != 1 || readings[0] != 125.5 {
+		t.Fatalf("expected one bucket with 125.5W, got %v", readings)
 	}
+}
+
+func TestHistoryCoversWholePeriod(t *testing.T) {
+	store, err := New(filepath.Join(t.TempDir(), "test.db"), 1*time.Second, 10)
+	if err != nil {
+		t.Fatalf("failed to init storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	if err := store.UpsertPlug(ctx, models.Plug{ID: "p", Name: "P", Model: "P115", DriverType: "mock", IsActive: true}); err != nil {
+		t.Fatalf("failed to upsert plug: %v", err)
+	}
+
+	// One reading every 10 minutes for the last 24 hours
+	now := time.Now().UTC()
+	for i := 0; i < 24*6; i++ {
+		store.RecordReading(models.EnergyReading{
+			PlugID:     "p",
+			Timestamp:  now.Add(-time.Duration(i) * 10 * time.Minute),
+			PowerWatts: float64(i),
+		})
+	}
+	if err := store.Flush(); err != nil {
+		t.Fatalf("flush failed: %v", err)
+	}
+
+	start := now.Add(-24 * time.Hour).Truncate(5 * time.Minute)
+	history, err := store.GetHistory(ctx, "p", start, now.Add(time.Minute), 5*time.Minute)
+	if err != nil {
+		t.Fatalf("failed to get history: %v", err)
+	}
+	if len(history) < 288 {
+		t.Errorf("expected at least 288 five-minute buckets for 24 hours, got %d", len(history))
+	}
+	if got := len(countReadings(history)); got != 144 {
+		t.Errorf("expected 144 buckets with readings, got %d", got)
+	}
+	var newest models.HistoryPoint
+	for _, pt := range history {
+		if pt.PowerWatts != nil {
+			newest = pt
+		}
+	}
+	if now.Sub(newest.Timestamp) > 10*time.Minute {
+		t.Errorf("expected the newest reading in the last 10 minutes, got bucket at %v", newest.Timestamp)
+	}
+}
+
+// countReadings returns the power of every bucket that has readings.
+func countReadings(points []models.HistoryPoint) []float64 {
+	var watts []float64
+	for _, pt := range points {
+		if pt.PowerWatts != nil {
+			watts = append(watts, *pt.PowerWatts)
+		}
+	}
+	return watts
 }
