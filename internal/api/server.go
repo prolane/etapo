@@ -171,6 +171,7 @@ func periodStart(r *http.Request, rangeParam string) (time.Time, error) {
 	start := now
 
 	if rangeParam == "month" {
+		start = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
 		if v := r.URL.Query().Get("month"); v != "" {
 			t, err := time.ParseInLocation("2006-01", v, time.Local)
 			if err != nil {
@@ -240,21 +241,13 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request, plugID st
 		return
 	}
 
-	rangeParam := r.URL.Query().Get("range")
-	window := 1 * time.Hour
-	switch rangeParam {
-	case "24h":
-		window = 24 * time.Hour
-	case "7d":
-		window = 7 * 24 * time.Hour
-	case "30d":
-		window = 30 * 24 * time.Hour
-	case "1h", "":
-		window = 1 * time.Hour
+	start, end, bucket, err := historyWindow(r, time.Now())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
-	since := time.Now().Add(-window)
-	points, err := s.storage.GetHistory(r.Context(), plugID, since, 200)
+	points, err := s.storage.GetHistory(r.Context(), plugID, start, end, bucket)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -265,6 +258,42 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request, plugID st
 	}
 
 	writeJSON(w, http.StatusOK, points)
+}
+
+// historyWindow returns the period and bucket size for a history request. The rolling
+// ranges are 1h (1 minute buckets), 24h (5 minutes), 7d (1 hour) and 30d (4 hours);
+// range=today starts at local midnight in 5 minute buckets, and range=month uses a
+// calendar month (month=YYYY-MM, local time) in 4 hour buckets.
+func historyWindow(r *http.Request, now time.Time) (start, end time.Time, bucket time.Duration, err error) {
+	end = now
+	switch r.URL.Query().Get("range") {
+	case "today":
+		bucket = 5 * time.Minute
+		start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	case "24h":
+		bucket = 5 * time.Minute
+		start = now.Add(-24 * time.Hour).Truncate(bucket)
+	case "7d":
+		bucket = time.Hour
+		start = now.Add(-7 * 24 * time.Hour).Truncate(bucket)
+	case "30d":
+		bucket = 4 * time.Hour
+		start = now.Add(-30 * 24 * time.Hour).Truncate(bucket)
+	case "month":
+		bucket = 4 * time.Hour
+		start, err = periodStart(r, "month")
+		if err != nil {
+			return time.Time{}, time.Time{}, 0, err
+		}
+		end = start.AddDate(0, 1, 0)
+		if end.After(now) {
+			end = now
+		}
+	default:
+		bucket = time.Minute
+		start = now.Add(-time.Hour).Truncate(bucket)
+	}
+	return start, end, bucket, nil
 }
 
 func (s *Server) handlePower(w http.ResponseWriter, r *http.Request, plugID string) {

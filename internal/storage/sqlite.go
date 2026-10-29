@@ -386,49 +386,51 @@ func (s *Storage) GetLatestReading(ctx context.Context, plugID string) (*models.
 	return &r, nil
 }
 
-// GetHistory returns time-series history for a plug within a time window.
-func (s *Storage) GetHistory(ctx context.Context, plugID string, since time.Time, limit int) ([]models.HistoryPoint, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
-
-	var rows *sql.Rows
-	var err error
-
-	if plugID == "all" || plugID == "" {
-		rows, err = s.db.QueryContext(ctx, `
-			SELECT timestamp, SUM(power_watts) as total_power
+// GetHistory returns the average power of a plug for each bucket from start up to end.
+// Buckets are counted from start, so start should be aligned to the bucket size.
+// A bucket without readings has a nil PowerWatts, so the chart shows a gap.
+func (s *Storage) GetHistory(ctx context.Context, plugID string, start, end time.Time, bucket time.Duration) ([]models.HistoryPoint, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT CAST((CAST(strftime('%s', ts) AS INTEGER) - ?) / ? AS INTEGER) AS slot, AVG(power_watts)
+		FROM (
+			SELECT replace(substr(timestamp, 1, 19), 'T', ' ') AS ts, power_watts
 			FROM energy_readings
-			WHERE timestamp >= ?
-			GROUP BY strftime('%Y-%m-%d %H:%M', substr(timestamp, 1, 19))
-			ORDER BY timestamp ASC
-			LIMIT ?
-		`, since.UTC(), limit)
-	} else {
-		rows, err = s.db.QueryContext(ctx, `
-			SELECT timestamp, power_watts
-			FROM energy_readings
-			WHERE plug_id = ? AND timestamp >= ?
-			ORDER BY timestamp ASC
-			LIMIT ?
-		`, plugID, since.UTC(), limit)
-	}
-
+			WHERE plug_id = ?
+		)
+		WHERE ts >= ? AND ts < ?
+		GROUP BY slot
+	`, start.Unix(), int64(bucket/time.Second), plugID, start.UTC().Format(time.DateTime), end.UTC().Format(time.DateTime))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var points []models.HistoryPoint
+	averages := make(map[int64]float64)
 	for rows.Next() {
-		var pt models.HistoryPoint
-		if err := rows.Scan(&pt.Timestamp, &pt.PowerWatts); err != nil {
+		var slot int64
+		var avg float64
+		if err := rows.Scan(&slot, &avg); err != nil {
 			return nil, err
+		}
+		averages[slot] = avg
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var points []models.HistoryPoint
+	for i := int64(0); ; i++ {
+		ts := start.Add(time.Duration(i) * bucket)
+		if !ts.Before(end) {
+			break
+		}
+		pt := models.HistoryPoint{Timestamp: ts}
+		if avg, ok := averages[i]; ok {
+			pt.PowerWatts = &avg
 		}
 		points = append(points, pt)
 	}
-
-	return points, rows.Err()
+	return points, nil
 }
 
 // GetSummary returns top-level aggregated figures across all sockets for the top KPI bar.

@@ -157,29 +157,7 @@
       </div>
     </div>
 
-    <!-- 3. "POWER GUZZLERS" & STANDBY LEAK DETECTOR -->
-    <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-        <div>
-          <h2 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
-            <span>🧛 Standby Leak Detector & Vampire Load</span>
-            <span id="standby-window-badge" class="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-normal">02:00 – 05:00 Baseline</span>
-          </h2>
-          <p class="text-xs text-slate-400">Detects silent phantom loads that drain money 24/7 while your household is asleep</p>
-        </div>
-        <!-- Standby Period Toggle -->
-        <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs self-start sm:self-auto">
-          <button onclick="setStandbyNights(1)" id="btn-standby-night" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Last night</button>
-          <button onclick="setStandbyNights(7)" id="btn-standby-week" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Last 7 nights</button>
-        </div>
-      </div>
-
-      <div id="standby-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <!-- Rendered dynamically -->
-      </div>
-    </div>
-
-    <!-- 4. DEVICE LEADERBOARD TABLE -->
+    <!-- 3. DEVICE LEADERBOARD TABLE -->
     <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
@@ -228,6 +206,28 @@
             <!-- Dynamic rows -->
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- 4. "POWER GUZZLERS" & STANDBY LEAK DETECTOR -->
+    <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
+            <span>🧛 Standby Leak Detector & Vampire Load</span>
+            <span id="standby-window-badge" class="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-normal">02:00 – 05:00 Baseline</span>
+          </h2>
+          <p class="text-xs text-slate-400">Detects silent phantom loads that drain money 24/7 while your household is asleep</p>
+        </div>
+        <!-- Standby Period Toggle -->
+        <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs self-start sm:self-auto">
+          <button onclick="setStandbyNights(1)" id="btn-standby-night" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Last night</button>
+          <button onclick="setStandbyNights(7)" id="btn-standby-week" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Last 7 nights</button>
+        </div>
+      </div>
+
+      <div id="standby-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- Rendered dynamically -->
       </div>
     </div>
 
@@ -290,9 +290,24 @@
 
         <!-- Timeline Chart -->
         <div>
-          <div class="flex items-center justify-between mb-2">
-            <p class="text-xs font-semibold text-slate-300">24-Hour Wattage Timeline</p>
-            <span class="text-[11px] text-slate-500">Real-time power curve</span>
+          <div class="flex flex-wrap items-end justify-between gap-2 mb-2">
+            <div class="flex items-center gap-3 h-8">
+              <p class="text-xs font-semibold text-slate-300">Wattage Timeline</p>
+              <span id="timeline-resolution" class="text-[11px] text-slate-500">5-minute average</span>
+            </div>
+            <div class="flex flex-col items-end gap-2 text-xs">
+              <div id="timeline-month-picker" class="flex items-center gap-1 invisible">
+                <button onclick="stepTimelineMonth(-1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition" title="Previous">‹</button>
+                <input type="month" id="timeline-month-input" onchange="setTimelineMonth(this.value)" class="px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
+                <button id="btn-timeline-next" onclick="stepTimelineMonth(1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40 disabled:hover:text-slate-300" title="Next">›</button>
+              </div>
+              <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700">
+                <button onclick="setTimelineRange('today')" id="btn-timeline-today" class="px-3 py-1.5 rounded-md font-medium transition">Today</button>
+                <button onclick="setTimelineRange('24h')" id="btn-timeline-24h" class="px-3 py-1.5 rounded-md font-medium transition">Last 24 h</button>
+                <button onclick="setTimelineRange('7d')" id="btn-timeline-7d" class="px-3 py-1.5 rounded-md font-medium transition">Last 7 days</button>
+                <button onclick="setTimelineRange('month')" id="btn-timeline-month" class="px-3 py-1.5 rounded-md font-medium transition">Month</button>
+              </div>
+            </div>
           </div>
           <div class="h-52 w-full bg-slate-950/40 rounded-xl p-2 border border-slate-800">
             <canvas id="modalTimelineChart"></canvas>
@@ -321,6 +336,8 @@
     let stackedChartInstance = null;
     let modalChartInstance = null;
     let selectedPlugId = null;
+    let timelineRange = '24h';
+    let timelineMonth = localDateString(new Date()).slice(0, 7);
 
     const currencySymbols = { 'EUR': '€', 'GBP': '£', 'USD': '$' };
 
@@ -419,7 +436,7 @@
         }
 
         return `
-          <div onclick="openModal('${p.id}')" class="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80 hover:border-purple-500/40 transition cursor-pointer group flex flex-col justify-between">
+          <div onclick="openModal('${p.id}', 'standby')" class="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80 hover:border-purple-500/40 transition cursor-pointer group flex flex-col justify-between">
             <div>
               <div class="flex items-center justify-between">
                 <span class="text-xs font-bold text-white group-hover:text-purple-400 transition truncate">${escapeHTML(p.name)}</span>
@@ -477,7 +494,7 @@
         const monthCost = board.cost;
 
         return `
-          <tr class="hover:bg-slate-800/40 transition cursor-pointer group" onclick="openModal('${p.id}')">
+          <tr class="hover:bg-slate-800/40 transition cursor-pointer group" onclick="openModal('${p.id}', 'leaderboard')">
             <!-- Name -->
             <td class="py-3 px-3 font-sans font-medium text-white flex items-center gap-2">
               <span class="w-2 h-2 rounded-full ${isOn ? 'bg-emerald-400 live-dot' : 'bg-slate-600'}"></span>
@@ -876,11 +893,25 @@
       });
     }
 
-    async function openModal(id) {
+    async function openModal(id, context) {
       selectedPlugId = id;
+      applyTimelineContext(context);
       document.getElementById('device-modal').classList.remove('hidden');
       updateModalData(id);
+      updateTimelineControls();
       loadModalTimeline(id);
+    }
+
+    // Opens the timeline on the period the user was looking at in the widget that was clicked
+    function applyTimelineContext(context) {
+      if (context === 'standby') {
+        timelineRange = standbyNights === 1 ? '24h' : '7d';
+      } else if (leaderboardPeriod === 'month') {
+        timelineRange = 'month';
+        timelineMonth = leaderboardMonth;
+      } else {
+        timelineRange = 'today';
+      }
     }
 
     function closeModal() {
@@ -922,16 +953,70 @@
       btn.onclick = () => togglePlug(id, !isOn);
     }
 
+    function timelineQuery() {
+      return timelineRange === 'month' ? `range=month&month=${timelineMonth}` : `range=${timelineRange}`;
+    }
+
+    function setTimelineRange(range) {
+      timelineRange = range;
+      updateTimelineControls();
+      loadModalTimeline(selectedPlugId);
+    }
+
+    function setTimelineMonth(value) {
+      if (!value || value > currentMonth()) return;
+      timelineMonth = value;
+      updateTimelineControls();
+      loadModalTimeline(selectedPlugId);
+    }
+
+    function stepTimelineMonth(delta) {
+      const [y, m] = timelineMonth.split('-').map(Number);
+      const next = localDateString(new Date(y, m - 1 + delta, 1)).slice(0, 7);
+      if (next > currentMonth()) return;
+      timelineMonth = next;
+      updateTimelineControls();
+      loadModalTimeline(selectedPlugId);
+    }
+
+    function currentMonth() {
+      return localDateString(new Date()).slice(0, 7);
+    }
+
+    function updateTimelineControls() {
+      const resolutions = { 'today': '5-minute average', '24h': '5-minute average', '7d': 'Hourly average', 'month': '4-hour average' };
+      for (const range of Object.keys(resolutions)) {
+        const btn = document.getElementById(`btn-timeline-${range}`);
+        btn.className = range === timelineRange
+          ? 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition'
+          : 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+      }
+      document.getElementById('timeline-resolution').textContent = resolutions[timelineRange];
+
+      const isMonth = timelineRange === 'month';
+      document.getElementById('timeline-month-picker').classList.toggle('invisible', !isMonth);
+      const input = document.getElementById('timeline-month-input');
+      input.value = timelineMonth;
+      input.max = currentMonth();
+      document.getElementById('btn-timeline-next').disabled = timelineMonth >= currentMonth();
+    }
+
+    function formatTimelineLabel(date) {
+      const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (timelineRange === 'today') return time;
+      if (timelineRange === '7d') return `${date.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+      return `${date.toLocaleDateString([], { day: 'numeric', month: 'short' })} ${time}`;
+    }
+
     async function loadModalTimeline(id) {
+      const requested = `${id}|${timelineRange}|${timelineMonth}`;
       try {
-        const res = await fetch(`/api/plugs/${id}/history?range=24h`);
+        const res = await fetch(`/api/plugs/${id}/history?${timelineQuery()}`);
         if (!res.ok) return;
         const points = await res.json();
+        if (requested !== `${selectedPlugId}|${timelineRange}|${timelineMonth}`) return;
 
-        modalChartInstance.data.labels = points.map(pt => {
-          const d = new Date(pt.timestamp);
-          return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        });
+        modalChartInstance.data.labels = points.map(pt => formatTimelineLabel(new Date(pt.timestamp)));
         modalChartInstance.data.datasets[0].data = points.map(pt => pt.power_watts);
         modalChartInstance.update();
       } catch (err) {

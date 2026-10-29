@@ -225,7 +225,7 @@ sudo systemctl status etapo
 | `/api/summary?nights=N` | `GET` | Aggregated total live Watts, today's kWh, estimated cost and standby. `nights` (1-365, default 7) sets how many nights the standby average covers |
 | `/api/plugs?nights=N` | `GET` | List all plugs with latest telemetry, on/off status and standby. `nights` as for `/api/summary` |
 | `/api/plugs/:id` | `GET` | Details for a specific plug |
-| `/api/plugs/:id/history?range=1h\|24h\|7d` | `GET` | Time-series data points for charting |
+| `/api/plugs/:id/history?range=today\|24h\|7d\|month&month=YYYY-MM` | `GET` | Average power per bucket for the detail chart: `today` (since local midnight) and `24h` in 5 minute buckets, `7d` in 1 hour buckets, `month` (a calendar month, default current) in 4 hour buckets. Buckets without readings are `null`. `1h` (1 minute buckets) and `30d` (4 hours) are also accepted |
 | `/api/breakdown?range=today\|month&by=plug\|category` | `GET` | Consumption per hour (today) or per day (month) for the stacked chart. Pick a past period with `date=YYYY-MM-DD` (day) or `month=YYYY-MM` (month). Future periods return 400 |
 | `/api/leaderboard/month?month=YYYY-MM` | `GET` | Each plug's peak power, kWh and estimated cost for a calendar month. Defaults to the current month; future months return 400 |
 | `/api/plugs/:id/power` | `POST` | Toggle plug relay: `{"on": true\|false}` |

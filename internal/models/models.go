@@ -95,10 +95,10 @@ type SystemSummary struct {
 	LastUpdated          time.Time `json:"last_updated"`
 }
 
-// HistoryPoint is a compact data point for charts.
+// HistoryPoint is the average power of one time bucket. PowerWatts is nil when the bucket has no readings.
 type HistoryPoint struct {
 	Timestamp  time.Time `json:"timestamp"`
-	PowerWatts float64   `json:"power_watts"`
+	PowerWatts *float64  `json:"power_watts"`
 }
 
 // BreakdownSeries represents one series in a stacked chart (e.g. one plug or category).
