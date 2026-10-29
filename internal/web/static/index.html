@@ -302,13 +302,21 @@
               <span id="timeline-resolution" class="text-[11px] text-slate-500">5-minute average</span>
             </div>
             <div class="flex flex-col items-end gap-2 text-xs">
-              <div id="timeline-month-picker" class="flex items-center gap-1 invisible">
-                <button onclick="stepTimelineMonth(-1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition" title="Previous">‹</button>
-                <input type="month" id="timeline-month-input" onchange="setTimelineMonth(this.value)" class="px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
-                <button id="btn-timeline-next" onclick="stepTimelineMonth(1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40 disabled:hover:text-slate-300" title="Next">›</button>
+              <div id="timeline-picker" class="flex items-center gap-1 h-8 invisible">
+                <div id="timeline-day-picker" class="flex items-center gap-1 hidden">
+                  <button onclick="stepTimelineDay(-1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition" title="Previous">‹</button>
+                  <input type="date" id="timeline-day-input" onchange="setTimelineDay(this.value)" class="px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
+                  <button id="btn-timeline-next-day" onclick="stepTimelineDay(1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40 disabled:hover:text-slate-300" title="Next">›</button>
+                  <button id="btn-timeline-today-day" onclick="resetTimelineDay()" class="hidden px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition">Today</button>
+                </div>
+                <div id="timeline-month-picker" class="flex items-center gap-1 hidden">
+                  <button onclick="stepTimelineMonth(-1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition" title="Previous">‹</button>
+                  <input type="month" id="timeline-month-input" onchange="setTimelineMonth(this.value)" class="px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
+                  <button id="btn-timeline-next" onclick="stepTimelineMonth(1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40 disabled:hover:text-slate-300" title="Next">›</button>
+                </div>
               </div>
               <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700">
-                <button onclick="setTimelineRange('today')" id="btn-timeline-today" class="px-3 py-1.5 rounded-md font-medium transition">Today</button>
+                <button onclick="setTimelineRange('day')" id="btn-timeline-day" class="px-3 py-1.5 rounded-md font-medium transition">Day</button>
                 <button onclick="setTimelineRange('24h')" id="btn-timeline-24h" class="px-3 py-1.5 rounded-md font-medium transition">Last 24 h</button>
                 <button onclick="setTimelineRange('7d')" id="btn-timeline-7d" class="px-3 py-1.5 rounded-md font-medium transition">Last 7 days</button>
                 <button onclick="setTimelineRange('month')" id="btn-timeline-month" class="px-3 py-1.5 rounded-md font-medium transition">Month</button>
@@ -345,6 +353,7 @@
     let modalChartInstance = null;
     let selectedPlugId = null;
     let timelineRange = '24h';
+    let timelineDay = localDateString(new Date());
     let timelineMonth = localDateString(new Date()).slice(0, 7);
 
     const currencySymbols = { 'EUR': '€', 'GBP': '£', 'USD': '$' };
@@ -953,11 +962,9 @@
       } else if (leaderboardPeriod === 'month') {
         timelineRange = 'month';
         timelineMonth = leaderboardMonth;
-      } else if (leaderboardDay === localDateString(new Date())) {
-        timelineRange = 'today';
       } else {
-        timelineRange = 'month';
-        timelineMonth = leaderboardDay.slice(0, 7);
+        timelineRange = 'day';
+        timelineDay = leaderboardDay;
       }
     }
 
@@ -1001,7 +1008,31 @@
     }
 
     function timelineQuery() {
-      return timelineRange === 'month' ? `range=month&month=${timelineMonth}` : `range=${timelineRange}`;
+      if (timelineRange === 'month') return `range=month&month=${timelineMonth}`;
+      if (timelineRange === 'day') return `range=day&date=${timelineDay}`;
+      return `range=${timelineRange}`;
+    }
+
+    function setTimelineDay(value) {
+      if (!value || value > localDateString(new Date())) return;
+      timelineDay = value;
+      updateTimelineControls();
+      loadModalTimeline(selectedPlugId);
+    }
+
+    function stepTimelineDay(delta) {
+      const [y, m, d] = timelineDay.split('-').map(Number);
+      const next = localDateString(new Date(y, m - 1, d + delta));
+      if (next > localDateString(new Date())) return;
+      timelineDay = next;
+      updateTimelineControls();
+      loadModalTimeline(selectedPlugId);
+    }
+
+    function resetTimelineDay() {
+      timelineDay = localDateString(new Date());
+      updateTimelineControls();
+      loadModalTimeline(selectedPlugId);
     }
 
     function setTimelineRange(range) {
@@ -1031,7 +1062,7 @@
     }
 
     function updateTimelineControls() {
-      const resolutions = { 'today': '5-minute average', '24h': '5-minute average', '7d': 'Hourly average', 'month': '4-hour average' };
+      const resolutions = { 'day': '5-minute average', '24h': '5-minute average', '7d': 'Hourly average', 'month': '4-hour average' };
       for (const range of Object.keys(resolutions)) {
         const btn = document.getElementById(`btn-timeline-${range}`);
         btn.className = range === timelineRange
@@ -1040,8 +1071,17 @@
       }
       document.getElementById('timeline-resolution').textContent = resolutions[timelineRange];
 
-      const isMonth = timelineRange === 'month';
-      document.getElementById('timeline-month-picker').classList.toggle('invisible', !isMonth);
+      const today = localDateString(new Date());
+      document.getElementById('timeline-picker').classList.toggle('invisible', timelineRange !== 'day' && timelineRange !== 'month');
+      document.getElementById('timeline-day-picker').classList.toggle('hidden', timelineRange !== 'day');
+      document.getElementById('timeline-month-picker').classList.toggle('hidden', timelineRange !== 'month');
+
+      const dayInput = document.getElementById('timeline-day-input');
+      dayInput.value = timelineDay;
+      dayInput.max = today;
+      document.getElementById('btn-timeline-next-day').disabled = timelineDay >= today;
+      document.getElementById('btn-timeline-today-day').classList.toggle('hidden', timelineDay === today);
+
       const input = document.getElementById('timeline-month-input');
       input.value = timelineMonth;
       input.max = currentMonth();
@@ -1050,18 +1090,18 @@
 
     function formatTimelineLabel(date) {
       const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      if (timelineRange === 'today') return time;
+      if (timelineRange === 'day') return time;
       if (timelineRange === '7d') return `${date.toLocaleDateString([], { weekday: 'short' })} ${time}`;
       return `${date.toLocaleDateString([], { day: 'numeric', month: 'short' })} ${time}`;
     }
 
     async function loadModalTimeline(id) {
-      const requested = `${id}|${timelineRange}|${timelineMonth}`;
+      const requested = `${id}|${timelineRange}|${timelineDay}|${timelineMonth}`;
       try {
         const res = await fetch(`/api/plugs/${id}/history?${timelineQuery()}`);
         if (!res.ok) return;
         const points = await res.json();
-        if (requested !== `${selectedPlugId}|${timelineRange}|${timelineMonth}`) return;
+        if (requested !== `${selectedPlugId}|${timelineRange}|${timelineDay}|${timelineMonth}`) return;
 
         modalChartInstance.data.labels = points.map(pt => formatTimelineLabel(new Date(pt.timestamp)));
         modalChartInstance.data.datasets[0].data = points.map(pt => pt.power_watts);

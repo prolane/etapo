@@ -290,14 +290,21 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request, plugID st
 
 // historyWindow returns the period and bucket size for a history request. The rolling
 // ranges are 1h (1 minute buckets), 24h (5 minutes), 7d (1 hour) and 30d (4 hours);
-// range=today starts at local midnight in 5 minute buckets, and range=month uses a
-// calendar month (month=YYYY-MM, local time) in 4 hour buckets.
+// range=day is a local calendar day (date=YYYY-MM-DD, default today) in 5 minute buckets,
+// and range=month is a calendar month (month=YYYY-MM, local time) in 4 hour buckets.
 func historyWindow(r *http.Request, now time.Time) (start, end time.Time, bucket time.Duration, err error) {
 	end = now
 	switch r.URL.Query().Get("range") {
-	case "today":
+	case "day", "today":
 		bucket = 5 * time.Minute
-		start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+		start, err = periodStart(r, "today")
+		if err != nil {
+			return time.Time{}, time.Time{}, 0, err
+		}
+		end = start.AddDate(0, 0, 1)
+		if end.After(now) {
+			end = now
+		}
 	case "24h":
 		bucket = 5 * time.Minute
 		start = now.Add(-24 * time.Hour).Truncate(bucket)

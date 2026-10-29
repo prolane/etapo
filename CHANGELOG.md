@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - The device leaderboard has a Day view with a date picker, like the energy breakdown. Its columns follow the selected period: Day (kWh) and Est. Day Cost for a day, Month (kWh) and Est. Month Cost for a month. Live Watts is only shown for today.
-- The device detail timeline opens on Today when the leaderboard shows today. For another day it opens on that day's month.
+- The device detail timeline has a Day view with a date picker, replacing Today. Opening a device from the leaderboard's Day view shows that day.
 
 ### Fixed
 - Without a date, the breakdown and leaderboard APIs start at local midnight of the current day or month, instead of the current time.

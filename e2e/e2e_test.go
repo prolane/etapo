@@ -330,6 +330,8 @@ func TestAPIInputValidation(t *testing.T) {
 		{"month leaderboard, POST", http.MethodPost, "/api/leaderboard/month?month=2026-01", http.StatusMethodNotAllowed},
 		{"history, 24h", http.MethodGet, "/api/plugs/" + plugOffice + "/history?range=24h", http.StatusOK},
 		{"history, today", http.MethodGet, "/api/plugs/" + plugOffice + "/history?range=today", http.StatusOK},
+		{"history, day", http.MethodGet, "/api/plugs/" + plugOffice + "/history?range=day&date=2000-01-02", http.StatusOK},
+		{"history, future day", http.MethodGet, "/api/plugs/" + plugOffice + "/history?range=day&date=2999-01-01", http.StatusBadRequest},
 		{"history, 7 days", http.MethodGet, "/api/plugs/" + plugOffice + "/history?range=7d", http.StatusOK},
 		{"history, current month", http.MethodGet, "/api/plugs/" + plugOffice + "/history?range=month&month=" + time.Now().Format("2006-01"), http.StatusOK},
 		{"history, future month", http.MethodGet, "/api/plugs/" + plugOffice + "/history?range=month&month=2999-01", http.StatusBadRequest},
