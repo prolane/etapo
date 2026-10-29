@@ -171,8 +171,15 @@
         <div class="flex flex-wrap items-center gap-2 text-xs">
           <!-- Period Toggle -->
           <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs">
-            <button onclick="setLeaderboardPeriod('today')" id="btn-board-today" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Today</button>
+            <button onclick="setLeaderboardPeriod('day')" id="btn-board-day" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Day</button>
             <button onclick="setLeaderboardPeriod('month')" id="btn-board-month" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Month</button>
+          </div>
+          <!-- Day Picker -->
+          <div id="leaderboard-day-picker" class="items-center gap-1 text-xs" style="display: flex">
+            <button onclick="stepLeaderboardDay(-1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition" title="Previous">‹</button>
+            <input type="date" id="leaderboard-day-input" onchange="setLeaderboardDay(this.value)" class="px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
+            <button id="btn-leaderboard-next-day" onclick="stepLeaderboardDay(1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40 disabled:hover:text-slate-300" title="Next">›</button>
+            <button id="btn-leaderboard-today-day" onclick="resetLeaderboardDay()" class="hidden px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition">Today</button>
           </div>
           <!-- Month Picker -->
           <div id="leaderboard-month-picker" class="items-center gap-1 text-xs" style="display: none">
@@ -197,9 +204,8 @@
               <th class="py-3 px-3 cursor-pointer hover:text-white" onclick="sortTable('category')">Category ⇅</th>
               <th id="th-watts" class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('watts')">Live Watts ⇅</th>
               <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('peak')">Peak (Max W) ⇅</th>
-              <th id="th-today" class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('today')">Today (kWh) ⇅</th>
-              <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('month')">Month (kWh) ⇅</th>
-              <th class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('cost')">Est. Month Cost ⇅</th>
+              <th id="th-energy" class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('energy')">Day (kWh) ⇅</th>
+              <th id="th-cost" class="py-3 px-3 text-right cursor-pointer hover:text-white" onclick="sortTable('cost')">Est. Day Cost ⇅</th>
             </tr>
           </thead>
           <tbody id="leaderboard-body" class="divide-y divide-slate-800/60 font-mono text-slate-300">
@@ -296,13 +302,21 @@
               <span id="timeline-resolution" class="text-[11px] text-slate-500">5-minute average</span>
             </div>
             <div class="flex flex-col items-end gap-2 text-xs">
-              <div id="timeline-month-picker" class="flex items-center gap-1 invisible">
-                <button onclick="stepTimelineMonth(-1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition" title="Previous">‹</button>
-                <input type="month" id="timeline-month-input" onchange="setTimelineMonth(this.value)" class="px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
-                <button id="btn-timeline-next" onclick="stepTimelineMonth(1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40 disabled:hover:text-slate-300" title="Next">›</button>
+              <div id="timeline-picker" class="flex items-center gap-1 h-8 invisible">
+                <div id="timeline-day-picker" class="flex items-center gap-1 hidden">
+                  <button onclick="stepTimelineDay(-1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition" title="Previous">‹</button>
+                  <input type="date" id="timeline-day-input" onchange="setTimelineDay(this.value)" class="px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
+                  <button id="btn-timeline-next-day" onclick="stepTimelineDay(1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40 disabled:hover:text-slate-300" title="Next">›</button>
+                  <button id="btn-timeline-today-day" onclick="resetTimelineDay()" class="hidden px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition">Today</button>
+                </div>
+                <div id="timeline-month-picker" class="flex items-center gap-1 hidden">
+                  <button onclick="stepTimelineMonth(-1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition" title="Previous">‹</button>
+                  <input type="month" id="timeline-month-input" onchange="setTimelineMonth(this.value)" class="px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 [color-scheme:dark]">
+                  <button id="btn-timeline-next" onclick="stepTimelineMonth(1)" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40 disabled:hover:text-slate-300" title="Next">›</button>
+                </div>
               </div>
               <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700">
-                <button onclick="setTimelineRange('today')" id="btn-timeline-today" class="px-3 py-1.5 rounded-md font-medium transition">Today</button>
+                <button onclick="setTimelineRange('day')" id="btn-timeline-day" class="px-3 py-1.5 rounded-md font-medium transition">Day</button>
                 <button onclick="setTimelineRange('24h')" id="btn-timeline-24h" class="px-3 py-1.5 rounded-md font-medium transition">Last 24 h</button>
                 <button onclick="setTimelineRange('7d')" id="btn-timeline-7d" class="px-3 py-1.5 rounded-md font-medium transition">Last 7 days</button>
                 <button onclick="setTimelineRange('month')" id="btn-timeline-month" class="px-3 py-1.5 rounded-md font-medium transition">Month</button>
@@ -311,6 +325,14 @@
           </div>
           <div class="h-52 w-full bg-slate-950/40 rounded-xl p-2 border border-slate-800">
             <canvas id="modalTimelineChart"></canvas>
+          </div>
+          <div class="flex items-center gap-3 h-8 mt-2 text-xs">
+            <p id="timeline-zoom-hint" class="text-[11px] text-slate-500">Drag across the chart to zoom in</p>
+            <div id="timeline-zoom-controls" class="items-center gap-3 flex-1 min-w-0" style="display: none">
+              <span id="timeline-zoom-label" class="text-[11px] text-slate-400 whitespace-nowrap"></span>
+              <input type="range" id="timeline-zoom-range" min="0" max="0" value="0" oninput="scrollTimelineZoom(this.value)" class="flex-1 accent-emerald-500">
+              <button onclick="resetTimelineZoom()" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition whitespace-nowrap">Reset zoom</button>
+            </div>
           </div>
         </div>
       </div>
@@ -328,15 +350,21 @@
     let breakdownDate = localDateString(new Date());
     let breakdownMonth = breakdownDate.slice(0, 7);
     let breakdownChartType = 'stacked';
-    let leaderboardPeriod = 'today';
+    let leaderboardPeriod = 'day';
+    let leaderboardDay = localDateString(new Date());
     let leaderboardMonth = localDateString(new Date()).slice(0, 7);
-    let monthStats = {};
+    let boardStats = {};
+    let boardStatsFor = '';
     let standbyWindow = '02:00 – 05:00';
     let standbyNights = 1;
     let stackedChartInstance = null;
     let modalChartInstance = null;
     let selectedPlugId = null;
     let timelineRange = '24h';
+    let timelineAll = { labels: [], values: [] };
+    let timelineZoom = null;
+    let zoomSelection = null;
+    let timelineDay = localDateString(new Date());
     let timelineMonth = localDateString(new Date()).slice(0, 7);
 
     const currencySymbols = { 'EUR': '€', 'GBP': '£', 'USD': '$' };
@@ -344,7 +372,9 @@
     async function init() {
       initStackedChart();
       initModalChart();
+      setupTimelineZoom();
       updateBreakdownControls();
+      updateLeaderboardControls();
       await refreshAll();
       connectSSE();
     }
@@ -353,6 +383,7 @@
       await fetchSummary();
       await fetchPlugs();
       await loadBreakdownChart();
+      await loadLeaderboardStats();
     }
 
     async function fetchSummary() {
@@ -463,6 +494,22 @@
       }).join('');
     }
 
+    // Live watts only make sense for today; the other columns follow the selected day or month
+    function liveColumnShown() {
+      return leaderboardPeriod === 'day' && leaderboardDay === localDateString(new Date());
+    }
+
+    function updateLeaderboardColumns() {
+      const isDay = leaderboardPeriod === 'day';
+      document.getElementById('th-watts').classList.toggle('hidden', !liveColumnShown());
+      document.getElementById('th-energy').textContent = isDay ? 'Day (kWh) ⇅' : 'Month (kWh) ⇅';
+      document.getElementById('th-cost').textContent = isDay ? 'Est. Day Cost ⇅' : 'Est. Month Cost ⇅';
+      if (sortColumn === 'watts' && !liveColumnShown()) {
+        sortColumn = 'energy';
+        sortAsc = false;
+      }
+    }
+
     function renderLeaderboard() {
       const tbody = document.getElementById('leaderboard-body');
       let filtered = plugsData;
@@ -471,6 +518,7 @@
       }
 
       document.getElementById('table-plugs-count').textContent = filtered.length;
+      updateLeaderboardColumns();
 
       // Sort
       filtered.sort((a, b) => {
@@ -482,16 +530,14 @@
         return sortAsc ? valA - valB : valB - valA;
       });
 
-      const isMonth = leaderboardPeriod === 'month';
+      const showLive = liveColumnShown();
 
       tbody.innerHTML = filtered.map(p => {
-        const r = p.latest_reading || { power_watts: 0, energy_today_kwh: 0, energy_month_kwh: 0 };
+        const r = p.latest_reading || { power_watts: 0 };
         const isOn = p.is_on;
         const liveW = isOn ? r.power_watts : 0;
         const board = boardValues(p);
-        const peakW = isMonth ? board.peak : (board.peak || liveW);
-        const monthKwh = board.month;
-        const monthCost = board.cost;
+        const peakW = showLive ? (board.peak || liveW) : board.peak;
 
         return `
           <tr class="hover:bg-slate-800/40 transition cursor-pointer group" onclick="openModal('${p.id}', 'leaderboard')">
@@ -506,52 +552,42 @@
                 ${escapeHTML(p.category || 'General')}
               </span>
             </td>
-            ${isMonth ? '' : `
+            ${showLive ? `
             <!-- Live Watts -->
             <td class="py-3 px-3 text-right font-bold ${liveW > 0 ? 'text-emerald-400' : 'text-slate-500'}">
               ${liveW.toFixed(1)} W
-            </td>`}
+            </td>` : ''}
             <!-- Peak Watts -->
             <td class="py-3 px-3 text-right text-slate-300">
               ${peakW.toFixed(1)} W
             </td>
-            ${isMonth ? '' : `
-            <!-- Today kWh -->
+            <!-- Energy -->
             <td class="py-3 px-3 text-right text-slate-300">
-              ${r.energy_today_kwh.toFixed(3)}
-            </td>`}
-            <!-- Month kWh -->
-            <td class="py-3 px-3 text-right text-slate-300">
-              ${monthKwh.toFixed(2)}
+              ${board.energy.toFixed(2)}
             </td>
-            <!-- Monthly Cost -->
+            <!-- Cost -->
             <td class="py-3 px-3 text-right font-semibold text-white">
-              ${currencySymbol}${monthCost.toFixed(2)}
+              ${currencySymbol}${board.cost.toFixed(2)}
             </td>
           </tr>
         `;
       }).join('');
     }
 
-    // Peak, month kWh and cost for the leaderboard's current period
+    // Peak, energy and cost for the selected day or month
     function boardValues(p) {
-      if (leaderboardPeriod === 'month') {
-        const ms = monthStats[p.id] || {};
-        return { peak: ms.peak_watts || 0, month: ms.energy_kwh || 0, cost: ms.estimated_cost || 0 };
-      }
-      const r = p.latest_reading || { energy_month_kwh: 0 };
-      return { peak: p.peak_watts_today || 0, month: r.energy_month_kwh || 0, cost: p.estimated_month_cost || 0 };
+      const s = boardStatsFor === leaderboardStatsURL() ? (boardStats[p.id] || {}) : {};
+      return { peak: s.peak_watts || 0, energy: s.energy_kwh || 0, cost: s.estimated_cost || 0 };
     }
 
     function getSortValue(p, col) {
-      const r = p.latest_reading || { power_watts: 0, energy_today_kwh: 0, energy_month_kwh: 0 };
+      const r = p.latest_reading || { power_watts: 0 };
       switch (col) {
         case 'name': return p.name.toLowerCase();
         case 'category': return (p.category || '').toLowerCase();
         case 'watts': return p.is_on ? r.power_watts : 0;
         case 'peak': return boardValues(p).peak;
-        case 'today': return r.energy_today_kwh || 0;
-        case 'month': return boardValues(p).month;
+        case 'energy': return boardValues(p).energy;
         case 'cost': return boardValues(p).cost;
         default: return 0;
       }
@@ -579,62 +615,79 @@
 
     function setLeaderboardPeriod(period) {
       leaderboardPeriod = period;
-      const btnToday = document.getElementById('btn-board-today');
+      const btnDay = document.getElementById('btn-board-day');
       const btnMonth = document.getElementById('btn-board-month');
-      if (period === 'month') {
-        btnMonth.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
-        btnToday.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
-        if (sortColumn === 'watts' || sortColumn === 'today') {
-          sortColumn = 'month';
-          sortAsc = false;
-        }
-      } else {
-        btnToday.className = 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition';
-        btnMonth.className = 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
-      }
-      document.getElementById('th-watts').classList.toggle('hidden', period === 'month');
-      document.getElementById('th-today').classList.toggle('hidden', period === 'month');
-      document.getElementById('leaderboard-month-picker').style.display = period === 'month' ? 'flex' : 'none';
-      if (period === 'month') {
-        updateLeaderboardControls();
-        loadLeaderboardMonth();
-      } else {
+      btnDay.className = period === 'day'
+        ? 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition'
+        : 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+      btnMonth.className = period === 'month'
+        ? 'px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition'
+        : 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition';
+      changeLeaderboardPeriod();
+    }
+
+    function leaderboardStatsURL() {
+      return leaderboardPeriod === 'day'
+        ? `/api/leaderboard/day?date=${leaderboardDay}`
+        : `/api/leaderboard/month?month=${leaderboardMonth}`;
+    }
+
+    async function loadLeaderboardStats() {
+      const url = leaderboardStatsURL();
+      try {
+        const res = await fetch(url);
+        if (!res.ok || url !== leaderboardStatsURL()) return;
+        const rows = await res.json();
+        boardStats = Object.fromEntries(rows.map(ps => [ps.plug_id, ps]));
+        boardStatsFor = url;
         renderLeaderboard();
+      } catch (err) {
+        console.error('Failed to load leaderboard:', err);
       }
     }
 
-    async function loadLeaderboardMonth() {
-      try {
-        const res = await fetch(`/api/leaderboard/month?month=${leaderboardMonth}`);
-        if (!res.ok) return;
-        const rows = await res.json();
-        monthStats = Object.fromEntries(rows.map(ms => [ms.plug_id, ms]));
-        renderLeaderboard();
-      } catch (err) {
-        console.error('Failed to load month leaderboard:', err);
-      }
+    function changeLeaderboardPeriod() {
+      updateLeaderboardControls();
+      renderLeaderboard();
+      loadLeaderboardStats();
+    }
+
+    function setLeaderboardDay(value) {
+      if (!value || value > localDateString(new Date())) return;
+      leaderboardDay = value;
+      changeLeaderboardPeriod();
+    }
+
+    function stepLeaderboardDay(delta) {
+      const [y, m, d] = leaderboardDay.split('-').map(Number);
+      const next = localDateString(new Date(y, m - 1, d + delta));
+      if (next > localDateString(new Date())) return;
+      leaderboardDay = next;
+      changeLeaderboardPeriod();
+    }
+
+    function resetLeaderboardDay() {
+      leaderboardDay = localDateString(new Date());
+      changeLeaderboardPeriod();
     }
 
     function setLeaderboardMonth(value) {
       if (!value) return;
       leaderboardMonth = value;
       clampLeaderboardMonth();
-      updateLeaderboardControls();
-      loadLeaderboardMonth();
+      changeLeaderboardPeriod();
     }
 
     function stepLeaderboardMonth(delta) {
       const [y, m] = leaderboardMonth.split('-').map(Number);
       leaderboardMonth = localDateString(new Date(y, m - 1 + delta, 1)).slice(0, 7);
       clampLeaderboardMonth();
-      updateLeaderboardControls();
-      loadLeaderboardMonth();
+      changeLeaderboardPeriod();
     }
 
     function resetLeaderboardMonth() {
       leaderboardMonth = localDateString(new Date()).slice(0, 7);
-      updateLeaderboardControls();
-      loadLeaderboardMonth();
+      changeLeaderboardPeriod();
     }
 
     function clampLeaderboardMonth() {
@@ -643,7 +696,19 @@
     }
 
     function updateLeaderboardControls() {
-      const current = localDateString(new Date()).slice(0, 7);
+      const today = localDateString(new Date());
+      const isDay = leaderboardPeriod === 'day';
+      document.getElementById('leaderboard-day-picker').style.display = isDay ? 'flex' : 'none';
+      document.getElementById('leaderboard-month-picker').style.display = isDay ? 'none' : 'flex';
+
+      const dayInput = document.getElementById('leaderboard-day-input');
+      const atToday = leaderboardDay === today;
+      dayInput.value = leaderboardDay;
+      dayInput.max = today;
+      document.getElementById('btn-leaderboard-next-day').disabled = atToday;
+      document.getElementById('btn-leaderboard-today-day').classList.toggle('hidden', atToday);
+
+      const current = today.slice(0, 7);
       const atCurrent = leaderboardMonth === current;
       const input = document.getElementById('leaderboard-month-input');
       input.value = leaderboardMonth;
@@ -857,10 +922,28 @@
     }
 
     // Modal Handling
+    // Shades the period being dragged over the timeline
+    const zoomSelectionPlugin = {
+      id: 'zoomSelection',
+      afterDatasetsDraw(chart) {
+        if (!zoomSelection) return;
+        const { ctx, chartArea } = chart;
+        const left = Math.min(zoomSelection.from, zoomSelection.to);
+        const width = Math.abs(zoomSelection.to - zoomSelection.from);
+        ctx.save();
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.15)';
+        ctx.strokeStyle = 'rgba(16, 185, 129, 0.6)';
+        ctx.fillRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+        ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+        ctx.restore();
+      }
+    };
+
     function initModalChart() {
       const ctx = document.getElementById('modalTimelineChart').getContext('2d');
       modalChartInstance = new Chart(ctx, {
         type: 'line',
+        plugins: [zoomSelectionPlugin],
         data: {
           labels: [],
           datasets: [{
@@ -893,6 +976,88 @@
       });
     }
 
+    // Drag across the chart to select a period. Chart x positions are CSS pixels, relative to the canvas.
+    function setupTimelineZoom() {
+      const canvas = modalChartInstance.canvas;
+      canvas.style.cursor = 'crosshair';
+      canvas.style.touchAction = 'pan-y';
+      const chartX = e => {
+        const rect = canvas.getBoundingClientRect();
+        const area = modalChartInstance.chartArea;
+        return Math.min(Math.max(e.clientX - rect.left, area.left), area.right);
+      };
+      canvas.addEventListener('pointerdown', e => {
+        if (e.button !== 0 || timelineAll.labels.length < 3) return;
+        zoomSelection = { from: chartX(e), to: chartX(e) };
+        canvas.setPointerCapture(e.pointerId);
+        modalChartInstance.draw();
+      });
+      canvas.addEventListener('pointermove', e => {
+        if (!zoomSelection) return;
+        zoomSelection.to = chartX(e);
+        modalChartInstance.draw();
+      });
+      const finish = () => {
+        if (!zoomSelection) return;
+        const { from, to } = zoomSelection;
+        zoomSelection = null;
+        modalChartInstance.draw();
+        if (Math.abs(to - from) >= 10) zoomBetweenPixels(from, to);
+      };
+      canvas.addEventListener('pointerup', finish);
+      canvas.addEventListener('pointercancel', () => { zoomSelection = null; modalChartInstance.draw(); });
+    }
+
+    // Converts two chart x positions in the current view to a zoom window in the full data
+    function zoomBetweenPixels(fromX, toX) {
+      const view = currentTimelineView();
+      const last = view.end - view.start - 1;
+      const clamp = v => Math.min(Math.max(Math.round(modalChartInstance.scales.x.getValueForPixel(v)), 0), last);
+      const lo = Math.min(clamp(fromX), clamp(toX));
+      const hi = Math.max(clamp(fromX), clamp(toX));
+      if (hi - lo < 2) return;
+      timelineZoom = { start: view.start + lo, end: view.start + hi + 1 };
+      renderTimeline();
+    }
+
+    function currentTimelineView() {
+      return timelineZoom || { start: 0, end: timelineAll.labels.length };
+    }
+
+    function renderTimeline() {
+      const view = currentTimelineView();
+      modalChartInstance.data.labels = timelineAll.labels.slice(view.start, view.end);
+      modalChartInstance.data.datasets[0].data = timelineAll.values.slice(view.start, view.end);
+      modalChartInstance.update();
+      updateTimelineZoomControls();
+    }
+
+    function updateTimelineZoomControls() {
+      const zoomed = timelineZoom !== null;
+      document.getElementById('timeline-zoom-hint').classList.toggle('hidden', zoomed);
+      document.getElementById('timeline-zoom-controls').style.display = zoomed ? 'flex' : 'none';
+      if (!zoomed) return;
+      const windowLength = timelineZoom.end - timelineZoom.start;
+      const range = document.getElementById('timeline-zoom-range');
+      range.max = timelineAll.labels.length - windowLength;
+      range.value = timelineZoom.start;
+      document.getElementById('timeline-zoom-label').textContent =
+        `${timelineAll.labels[timelineZoom.start]} – ${timelineAll.labels[timelineZoom.end - 1]}`;
+    }
+
+    // Moves the zoom window along the full data, keeping its length
+    function scrollTimelineZoom(value) {
+      if (!timelineZoom) return;
+      const length = timelineZoom.end - timelineZoom.start;
+      timelineZoom = { start: Number(value), end: Number(value) + length };
+      renderTimeline();
+    }
+
+    function resetTimelineZoom() {
+      timelineZoom = null;
+      renderTimeline();
+    }
+
     async function openModal(id, context) {
       selectedPlugId = id;
       applyTimelineContext(context);
@@ -910,7 +1075,8 @@
         timelineRange = 'month';
         timelineMonth = leaderboardMonth;
       } else {
-        timelineRange = 'today';
+        timelineRange = 'day';
+        timelineDay = leaderboardDay;
       }
     }
 
@@ -954,7 +1120,31 @@
     }
 
     function timelineQuery() {
-      return timelineRange === 'month' ? `range=month&month=${timelineMonth}` : `range=${timelineRange}`;
+      if (timelineRange === 'month') return `range=month&month=${timelineMonth}`;
+      if (timelineRange === 'day') return `range=day&date=${timelineDay}`;
+      return `range=${timelineRange}`;
+    }
+
+    function setTimelineDay(value) {
+      if (!value || value > localDateString(new Date())) return;
+      timelineDay = value;
+      updateTimelineControls();
+      loadModalTimeline(selectedPlugId);
+    }
+
+    function stepTimelineDay(delta) {
+      const [y, m, d] = timelineDay.split('-').map(Number);
+      const next = localDateString(new Date(y, m - 1, d + delta));
+      if (next > localDateString(new Date())) return;
+      timelineDay = next;
+      updateTimelineControls();
+      loadModalTimeline(selectedPlugId);
+    }
+
+    function resetTimelineDay() {
+      timelineDay = localDateString(new Date());
+      updateTimelineControls();
+      loadModalTimeline(selectedPlugId);
     }
 
     function setTimelineRange(range) {
@@ -984,7 +1174,7 @@
     }
 
     function updateTimelineControls() {
-      const resolutions = { 'today': '5-minute average', '24h': '5-minute average', '7d': 'Hourly average', 'month': '4-hour average' };
+      const resolutions = { 'day': '5-minute average', '24h': '5-minute average', '7d': 'Hourly average', 'month': '4-hour average' };
       for (const range of Object.keys(resolutions)) {
         const btn = document.getElementById(`btn-timeline-${range}`);
         btn.className = range === timelineRange
@@ -993,8 +1183,17 @@
       }
       document.getElementById('timeline-resolution').textContent = resolutions[timelineRange];
 
-      const isMonth = timelineRange === 'month';
-      document.getElementById('timeline-month-picker').classList.toggle('invisible', !isMonth);
+      const today = localDateString(new Date());
+      document.getElementById('timeline-picker').classList.toggle('invisible', timelineRange !== 'day' && timelineRange !== 'month');
+      document.getElementById('timeline-day-picker').classList.toggle('hidden', timelineRange !== 'day');
+      document.getElementById('timeline-month-picker').classList.toggle('hidden', timelineRange !== 'month');
+
+      const dayInput = document.getElementById('timeline-day-input');
+      dayInput.value = timelineDay;
+      dayInput.max = today;
+      document.getElementById('btn-timeline-next-day').disabled = timelineDay >= today;
+      document.getElementById('btn-timeline-today-day').classList.toggle('hidden', timelineDay === today);
+
       const input = document.getElementById('timeline-month-input');
       input.value = timelineMonth;
       input.max = currentMonth();
@@ -1003,22 +1202,25 @@
 
     function formatTimelineLabel(date) {
       const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      if (timelineRange === 'today') return time;
+      if (timelineRange === 'day') return time;
       if (timelineRange === '7d') return `${date.toLocaleDateString([], { weekday: 'short' })} ${time}`;
       return `${date.toLocaleDateString([], { day: 'numeric', month: 'short' })} ${time}`;
     }
 
     async function loadModalTimeline(id) {
-      const requested = `${id}|${timelineRange}|${timelineMonth}`;
+      const requested = `${id}|${timelineRange}|${timelineDay}|${timelineMonth}`;
       try {
         const res = await fetch(`/api/plugs/${id}/history?${timelineQuery()}`);
         if (!res.ok) return;
         const points = await res.json();
-        if (requested !== `${selectedPlugId}|${timelineRange}|${timelineMonth}`) return;
+        if (requested !== `${selectedPlugId}|${timelineRange}|${timelineDay}|${timelineMonth}`) return;
 
-        modalChartInstance.data.labels = points.map(pt => formatTimelineLabel(new Date(pt.timestamp)));
-        modalChartInstance.data.datasets[0].data = points.map(pt => pt.power_watts);
-        modalChartInstance.update();
+        timelineAll = {
+          labels: points.map(pt => formatTimelineLabel(new Date(pt.timestamp))),
+          values: points.map(pt => pt.power_watts)
+        };
+        timelineZoom = null;
+        renderTimeline();
       } catch (err) {
         console.error('Modal timeline error:', err);
       }
@@ -1074,7 +1276,7 @@
     // Auto-refresh stacked chart every 30 seconds
     setInterval(() => {
       loadBreakdownChart();
-      if (leaderboardPeriod === 'month') loadLeaderboardMonth();
+      loadLeaderboardStats();
     }, 30000);
 
     window.addEventListener('DOMContentLoaded', init);

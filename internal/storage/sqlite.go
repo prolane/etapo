@@ -391,15 +391,11 @@ func (s *Storage) GetLatestReading(ctx context.Context, plugID string) (*models.
 // A bucket without readings has a nil PowerWatts, so the chart shows a gap.
 func (s *Storage) GetHistory(ctx context.Context, plugID string, start, end time.Time, bucket time.Duration) ([]models.HistoryPoint, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT CAST((CAST(strftime('%s', ts) AS INTEGER) - ?) / ? AS INTEGER) AS slot, AVG(power_watts)
-		FROM (
-			SELECT replace(substr(timestamp, 1, 19), 'T', ' ') AS ts, power_watts
-			FROM energy_readings
-			WHERE plug_id = ?
-		)
-		WHERE ts >= ? AND ts < ?
+		SELECT CAST((CAST(strftime('%s', substr(timestamp, 1, 19)) AS INTEGER) - ?) / ? AS INTEGER) AS slot, AVG(power_watts)
+		FROM energy_readings
+		WHERE plug_id = ? AND timestamp >= ? AND timestamp < ?
 		GROUP BY slot
-	`, start.Unix(), int64(bucket/time.Second), plugID, start.UTC().Format(time.DateTime), end.UTC().Format(time.DateTime))
+	`, start.Unix(), int64(bucket/time.Second), plugID, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, err
 	}

@@ -61,8 +61,8 @@ type PlugWithLatest struct {
 	EstimatedMonthCost float64        `json:"estimated_month_cost"` // Projected monthly electricity cost (€/mo)
 }
 
-// MonthStats is one plug's peak power and energy for a calendar month.
-type MonthStats struct {
+// PeriodStats is one plug's peak power and energy for a day or a calendar month.
+type PeriodStats struct {
 	PlugID        string  `json:"plug_id"`
 	PeakWatts     float64 `json:"peak_watts"`
 	EnergyKWh     float64 `json:"energy_kwh"`

@@ -44,6 +44,7 @@ func NewServer(cfg *config.Config, store *storage.Storage, col *collector.Collec
 	mux.HandleFunc("/api/plugs/", s.handlePlugSubroutes)
 	mux.HandleFunc("/api/summary", s.handleSummary)
 	mux.HandleFunc("/api/breakdown", s.handleBreakdown)
+	mux.HandleFunc("/api/leaderboard/day", s.handleDayLeaderboard)
 	mux.HandleFunc("/api/leaderboard/month", s.handleMonthLeaderboard)
 	mux.Handle("/api/events", broker)
 	mux.HandleFunc("/health", s.handleHealth)
@@ -140,6 +141,30 @@ func (s *Server) handleBreakdown(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, breakdown)
 }
 
+func (s *Server) handleDayLeaderboard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	start, err := periodStart(r, "today")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	stats, err := s.storage.GetDayStats(r.Context(), start, s.cfg.Billing.CostPerKWh)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if stats == nil {
+		stats = []models.PeriodStats{}
+	}
+
+	writeJSON(w, http.StatusOK, stats)
+}
+
 func (s *Server) handleMonthLeaderboard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -158,7 +183,7 @@ func (s *Server) handleMonthLeaderboard(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if stats == nil {
-		stats = []models.MonthStats{}
+		stats = []models.PeriodStats{}
 	}
 
 	writeJSON(w, http.StatusOK, stats)
@@ -179,12 +204,15 @@ func periodStart(r *http.Request, rangeParam string) (time.Time, error) {
 			}
 			start = t
 		}
-	} else if v := r.URL.Query().Get("date"); v != "" {
-		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
-		if err != nil {
-			return time.Time{}, fmt.Errorf("date must be formatted as YYYY-MM-DD")
+	} else {
+		start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+		if v := r.URL.Query().Get("date"); v != "" {
+			t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+			if err != nil {
+				return time.Time{}, fmt.Errorf("date must be formatted as YYYY-MM-DD")
+			}
+			start = t
 		}
-		start = t
 	}
 
 	if start.After(now) {
@@ -262,14 +290,21 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request, plugID st
 
 // historyWindow returns the period and bucket size for a history request. The rolling
 // ranges are 1h (1 minute buckets), 24h (5 minutes), 7d (1 hour) and 30d (4 hours);
-// range=today starts at local midnight in 5 minute buckets, and range=month uses a
-// calendar month (month=YYYY-MM, local time) in 4 hour buckets.
+// range=day is a local calendar day (date=YYYY-MM-DD, default today) in 5 minute buckets,
+// and range=month is a calendar month (month=YYYY-MM, local time) in 4 hour buckets.
 func historyWindow(r *http.Request, now time.Time) (start, end time.Time, bucket time.Duration, err error) {
 	end = now
 	switch r.URL.Query().Get("range") {
-	case "today":
+	case "day", "today":
 		bucket = 5 * time.Minute
-		start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+		start, err = periodStart(r, "today")
+		if err != nil {
+			return time.Time{}, time.Time{}, 0, err
+		}
+		end = start.AddDate(0, 0, 1)
+		if end.After(now) {
+			end = now
+		}
 	case "24h":
 		bucket = 5 * time.Minute
 		start = now.Add(-24 * time.Hour).Truncate(bucket)
