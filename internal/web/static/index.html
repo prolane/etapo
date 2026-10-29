@@ -326,6 +326,14 @@
           <div class="h-52 w-full bg-slate-950/40 rounded-xl p-2 border border-slate-800">
             <canvas id="modalTimelineChart"></canvas>
           </div>
+          <div class="flex items-center gap-3 h-8 mt-2 text-xs">
+            <p id="timeline-zoom-hint" class="text-[11px] text-slate-500">Drag across the chart to zoom in</p>
+            <div id="timeline-zoom-controls" class="items-center gap-3 flex-1 min-w-0" style="display: none">
+              <span id="timeline-zoom-label" class="text-[11px] text-slate-400 whitespace-nowrap"></span>
+              <input type="range" id="timeline-zoom-range" min="0" max="0" value="0" oninput="scrollTimelineZoom(this.value)" class="flex-1 accent-emerald-500">
+              <button onclick="resetTimelineZoom()" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition whitespace-nowrap">Reset zoom</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -353,6 +361,9 @@
     let modalChartInstance = null;
     let selectedPlugId = null;
     let timelineRange = '24h';
+    let timelineAll = { labels: [], values: [] };
+    let timelineZoom = null;
+    let zoomSelection = null;
     let timelineDay = localDateString(new Date());
     let timelineMonth = localDateString(new Date()).slice(0, 7);
 
@@ -361,6 +372,7 @@
     async function init() {
       initStackedChart();
       initModalChart();
+      setupTimelineZoom();
       updateBreakdownControls();
       updateLeaderboardControls();
       await refreshAll();
@@ -910,10 +922,28 @@
     }
 
     // Modal Handling
+    // Shades the period being dragged over the timeline
+    const zoomSelectionPlugin = {
+      id: 'zoomSelection',
+      afterDatasetsDraw(chart) {
+        if (!zoomSelection) return;
+        const { ctx, chartArea } = chart;
+        const left = Math.min(zoomSelection.from, zoomSelection.to);
+        const width = Math.abs(zoomSelection.to - zoomSelection.from);
+        ctx.save();
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.15)';
+        ctx.strokeStyle = 'rgba(16, 185, 129, 0.6)';
+        ctx.fillRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+        ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+        ctx.restore();
+      }
+    };
+
     function initModalChart() {
       const ctx = document.getElementById('modalTimelineChart').getContext('2d');
       modalChartInstance = new Chart(ctx, {
         type: 'line',
+        plugins: [zoomSelectionPlugin],
         data: {
           labels: [],
           datasets: [{
@@ -944,6 +974,88 @@
           }
         }
       });
+    }
+
+    // Drag across the chart to select a period. Chart x positions are CSS pixels, relative to the canvas.
+    function setupTimelineZoom() {
+      const canvas = modalChartInstance.canvas;
+      canvas.style.cursor = 'crosshair';
+      canvas.style.touchAction = 'pan-y';
+      const chartX = e => {
+        const rect = canvas.getBoundingClientRect();
+        const area = modalChartInstance.chartArea;
+        return Math.min(Math.max(e.clientX - rect.left, area.left), area.right);
+      };
+      canvas.addEventListener('pointerdown', e => {
+        if (e.button !== 0 || timelineAll.labels.length < 3) return;
+        zoomSelection = { from: chartX(e), to: chartX(e) };
+        canvas.setPointerCapture(e.pointerId);
+        modalChartInstance.draw();
+      });
+      canvas.addEventListener('pointermove', e => {
+        if (!zoomSelection) return;
+        zoomSelection.to = chartX(e);
+        modalChartInstance.draw();
+      });
+      const finish = () => {
+        if (!zoomSelection) return;
+        const { from, to } = zoomSelection;
+        zoomSelection = null;
+        modalChartInstance.draw();
+        if (Math.abs(to - from) >= 10) zoomBetweenPixels(from, to);
+      };
+      canvas.addEventListener('pointerup', finish);
+      canvas.addEventListener('pointercancel', () => { zoomSelection = null; modalChartInstance.draw(); });
+    }
+
+    // Converts two chart x positions in the current view to a zoom window in the full data
+    function zoomBetweenPixels(fromX, toX) {
+      const view = currentTimelineView();
+      const last = view.end - view.start - 1;
+      const clamp = v => Math.min(Math.max(Math.round(modalChartInstance.scales.x.getValueForPixel(v)), 0), last);
+      const lo = Math.min(clamp(fromX), clamp(toX));
+      const hi = Math.max(clamp(fromX), clamp(toX));
+      if (hi - lo < 2) return;
+      timelineZoom = { start: view.start + lo, end: view.start + hi + 1 };
+      renderTimeline();
+    }
+
+    function currentTimelineView() {
+      return timelineZoom || { start: 0, end: timelineAll.labels.length };
+    }
+
+    function renderTimeline() {
+      const view = currentTimelineView();
+      modalChartInstance.data.labels = timelineAll.labels.slice(view.start, view.end);
+      modalChartInstance.data.datasets[0].data = timelineAll.values.slice(view.start, view.end);
+      modalChartInstance.update();
+      updateTimelineZoomControls();
+    }
+
+    function updateTimelineZoomControls() {
+      const zoomed = timelineZoom !== null;
+      document.getElementById('timeline-zoom-hint').classList.toggle('hidden', zoomed);
+      document.getElementById('timeline-zoom-controls').style.display = zoomed ? 'flex' : 'none';
+      if (!zoomed) return;
+      const windowLength = timelineZoom.end - timelineZoom.start;
+      const range = document.getElementById('timeline-zoom-range');
+      range.max = timelineAll.labels.length - windowLength;
+      range.value = timelineZoom.start;
+      document.getElementById('timeline-zoom-label').textContent =
+        `${timelineAll.labels[timelineZoom.start]} – ${timelineAll.labels[timelineZoom.end - 1]}`;
+    }
+
+    // Moves the zoom window along the full data, keeping its length
+    function scrollTimelineZoom(value) {
+      if (!timelineZoom) return;
+      const length = timelineZoom.end - timelineZoom.start;
+      timelineZoom = { start: Number(value), end: Number(value) + length };
+      renderTimeline();
+    }
+
+    function resetTimelineZoom() {
+      timelineZoom = null;
+      renderTimeline();
     }
 
     async function openModal(id, context) {
@@ -1103,9 +1215,12 @@
         const points = await res.json();
         if (requested !== `${selectedPlugId}|${timelineRange}|${timelineDay}|${timelineMonth}`) return;
 
-        modalChartInstance.data.labels = points.map(pt => formatTimelineLabel(new Date(pt.timestamp)));
-        modalChartInstance.data.datasets[0].data = points.map(pt => pt.power_watts);
-        modalChartInstance.update();
+        timelineAll = {
+          labels: points.map(pt => formatTimelineLabel(new Date(pt.timestamp))),
+          values: points.map(pt => pt.power_watts)
+        };
+        timelineZoom = null;
+        renderTimeline();
       } catch (err) {
         console.error('Modal timeline error:', err);
       }
