@@ -449,4 +449,10 @@ func TestCLIRejectsBadInvocations(t *testing.T) {
 	if code, out := run("--help"); code != 0 || !strings.Contains(out, "Usage:") {
 		t.Errorf("--help: expected usage text and exit 0, got exit %d", code)
 	}
+	if code, out := run("--version"); code != 0 || !strings.HasPrefix(out, "etapo ") {
+		t.Errorf("--version: expected version line and exit 0, got exit %d: %s", code, out)
+	}
+	if code, out := run("--config", filepath.Join(dir, "missing.yaml"), "--version"); code != 0 || !strings.HasPrefix(out, "etapo ") {
+		t.Errorf("--version without config: expected version line and exit 0, got exit %d: %s", code, out)
+	}
 }

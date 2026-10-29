@@ -46,9 +46,16 @@ Flags must come before the mode, for example: etapo --config config.yaml run
 
 func main() {
 	var configPath string
+	var showVersion bool
 	flag.StringVar(&configPath, "config", "config.yaml", "Path to YAML configuration file")
+	flag.BoolVar(&showVersion, "version", false, "Print the version and exit")
 	flag.Usage = usage
 	flag.Parse()
+
+	if showVersion {
+		fmt.Printf("etapo %s\n", version)
+		return
+	}
 
 	mode := "run"
 	args := flag.Args()
@@ -70,7 +77,7 @@ func main() {
 		log.Fatalf("Config file %q does not exist. Create it (for example: cp config.example.yaml config.yaml) or pass --config FILE.", configPath)
 	}
 
-	log.Printf("[Etapo v%s] Initializing in %q mode (config: %s)...", version, mode, configPath)
+	log.Printf("[Etapo %s] Initializing in %q mode (config: %s)...", version, mode, configPath)
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
