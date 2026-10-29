@@ -157,29 +157,7 @@
       </div>
     </div>
 
-    <!-- 3. "POWER GUZZLERS" & STANDBY LEAK DETECTOR -->
-    <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-        <div>
-          <h2 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
-            <span>🧛 Standby Leak Detector & Vampire Load</span>
-            <span id="standby-window-badge" class="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-normal">02:00 – 05:00 Baseline</span>
-          </h2>
-          <p class="text-xs text-slate-400">Detects silent phantom loads that drain money 24/7 while your household is asleep</p>
-        </div>
-        <!-- Standby Period Toggle -->
-        <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs self-start sm:self-auto">
-          <button onclick="setStandbyNights(1)" id="btn-standby-night" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Last night</button>
-          <button onclick="setStandbyNights(7)" id="btn-standby-week" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Last 7 nights</button>
-        </div>
-      </div>
-
-      <div id="standby-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <!-- Rendered dynamically -->
-      </div>
-    </div>
-
-    <!-- 4. DEVICE LEADERBOARD TABLE -->
+    <!-- 3. DEVICE LEADERBOARD TABLE -->
     <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
@@ -228,6 +206,28 @@
             <!-- Dynamic rows -->
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- 4. "POWER GUZZLERS" & STANDBY LEAK DETECTOR -->
+    <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
+            <span>🧛 Standby Leak Detector & Vampire Load</span>
+            <span id="standby-window-badge" class="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-normal">02:00 – 05:00 Baseline</span>
+          </h2>
+          <p class="text-xs text-slate-400">Detects silent phantom loads that drain money 24/7 while your household is asleep</p>
+        </div>
+        <!-- Standby Period Toggle -->
+        <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs self-start sm:self-auto">
+          <button onclick="setStandbyNights(1)" id="btn-standby-night" class="px-3 py-1.5 rounded-md text-emerald-400 bg-slate-700/80 font-medium transition">Last night</button>
+          <button onclick="setStandbyNights(7)" id="btn-standby-week" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition">Last 7 nights</button>
+        </div>
+      </div>
+
+      <div id="standby-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- Rendered dynamically -->
       </div>
     </div>
 
