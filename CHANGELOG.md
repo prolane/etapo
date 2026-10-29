@@ -5,13 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0] - 2026-10-29
 
 ### Changed
 - The device detail chart has Today, Last 24 h (5-minute average), Last 7 days (hourly) and Month (4-hour, with a month picker) views. Gaps without readings are shown as breaks. It opens on the period of the widget it was opened from: the standby widget's night or 7-night view, or the leaderboard's Today or Month view.
+- The device leaderboard is shown above the standby widget.
 
 ### Fixed
 - The 24-hour device timeline stopped hours early, because it showed only the oldest readings of the window.
+- The release is published under the tag it was started for. Previously the release step failed for merged pull requests, so v1.0.0 was tagged without a release.
 
 ## [1.0.0] - 2026-10-28
 
