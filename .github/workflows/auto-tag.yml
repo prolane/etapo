@@ -1,15 +1,24 @@
 name: Auto tag
 
-# Tags every merged pull request on main and publishes a release:
+# Tags merged pull requests on main and publishes a release:
 #   PR labelled release:major -> next major (vX+1.0.0)
-#   Dependabot PRs            -> next patch (vX.Y.Z+1)
-#   all other PRs            -> next minor (vX.Y+1.0)
+#   other PRs (ours)          -> next minor (vX.Y+1.0), tagged when merged
+#   Dependabot PRs            -> next patch (vX.Y.Z+1), tagged by the schedule.
+#                                All untagged Dependabot PRs share one patch release.
+#
+# Merges made with GITHUB_TOKEN (dependabot-auto-merge.yml) do not start workflow
+# runs, so Dependabot PRs are picked up by the schedule instead of the closed event.
+# Every untagged PR up to the release commit counts towards the bump, so a minor
+# release also ships Dependabot updates merged before it.
 #
 # pull_request_target runs with a write-capable token. This workflow never checks
-# out or runs code from the PR; it only reads PR metadata from the event payload.
+# out or runs code from the PR; it only reads PR metadata from the API.
 on:
   pull_request_target:
     types: [closed]
+  schedule:
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
 
 permissions: {}
 
@@ -20,60 +29,80 @@ concurrency:
 jobs:
   tag:
     name: Create next version tag
-    if: github.event.pull_request.merged == true
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      (github.event.pull_request.merged == true && github.event.pull_request.user.login != 'dependabot[bot]')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     outputs:
       version: ${{ steps.next.outputs.version }}
+      summary: ${{ steps.next.outputs.summary }}
     steps:
       - name: Work out the next version
         id: next
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          TARGET_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
         run: |
           set -euo pipefail
+          if [ "$EVENT" != pull_request_target ] && [ "$REF" != refs/heads/main ]; then
+            echo "Run this workflow from main" >&2
+            exit 1
+          fi
+
           latest=$(gh api --paginate "repos/$REPO/tags" --jq '.[].name' \
             | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
           latest=${latest:-v0.0.0}
           IFS=. read -r major minor patch <<< "${latest#v}"
 
-          case ",$PR_LABELS," in
-            *,release:major,*)
-              major=$((major + 1))
-              minor=0
-              patch=0
-              ;;
-            *)
-              if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
-                patch=$((patch + 1))
-              else
-                minor=$((minor + 1))
-                patch=0
-              fi
-              ;;
+          prs=$(gh api "repos/$REPO/compare/$latest...$TARGET_SHA" --jq '.commits[].sha' \
+            | while read -r sha; do
+                gh api "repos/$REPO/commits/$sha/pulls" \
+                  --jq '.[] | select(.merged_at != null) | [.number, .user.login, .title, ([.labels[].name] | join(","))] | @tsv'
+              done)
+
+          if [ -z "$prs" ]; then
+            echo "No merged pull requests since $latest"
+            exit 0
+          fi
+
+          bump="patch"
+          while IFS=$'\t' read -r _ author _ labels; do
+            case ",$labels," in
+              *,release:major,*) bump=major ;;
+              *) if [ "$author" != "dependabot[bot]" ] && [ "$bump" != major ]; then bump=minor; fi ;;
+            esac
+          done <<< "$prs"
+
+          case $bump in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
           esac
 
-          echo "Latest tag $latest, next version v$major.$minor.$patch"
+          summary=$(awk -F'\t' '{ printf "%s%s (#%s)", (NR > 1 ? "; " : ""), $3, $1 }' <<< "$prs")
+          echo "Latest tag $latest, next version v$major.$minor.$patch ($bump)"
           echo "version=v$major.$minor.$patch" >> "$GITHUB_OUTPUT"
+          echo "summary=$summary" >> "$GITHUB_OUTPUT"
 
-      - name: Create annotated tag on the merge commit
+      - name: Create annotated tag on the release commit
+        if: steps.next.outputs.version != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           VERSION: ${{ steps.next.outputs.version }}
-          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SUMMARY: ${{ steps.next.outputs.summary }}
+          TARGET_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
         run: |
           set -euo pipefail
           tag_sha=$(gh api --method POST "repos/$REPO/git/tags" \
             -f tag="$VERSION" \
-            -f message="Release $VERSION: $PR_TITLE (#$PR_NUMBER)" \
-            -f object="$MERGE_SHA" \
+            -f message="Release $VERSION: $SUMMARY" \
+            -f object="$TARGET_SHA" \
             -f type=commit \
             --jq '.sha')
           gh api --method POST "repos/$REPO/git/refs" \
@@ -83,6 +112,7 @@ jobs:
   release:
     name: Build and publish release
     needs: tag
+    if: needs.tag.outputs.version != ''
     permissions:
       contents: write
     uses: ./.github/workflows/release.yml
