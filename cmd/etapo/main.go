@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -16,6 +17,7 @@ import (
 	"etapo/internal/collector"
 	"etapo/internal/config"
 	"etapo/internal/storage"
+	"etapo/internal/update"
 	"etapo/internal/web"
 )
 
@@ -30,11 +32,17 @@ func usage() {
 
 Usage:
   etapo [--config FILE] [run|collect|serve]
+  etapo --update
+  etapo --update-to VERSION
 
 Modes:
   run       Collector, storage, API and web UI in one process (default)
   collect   Collector and storage only; use when the API runs separately
   serve     Storage, API and web UI only; reads data written by collect
+
+Updating:
+  --update            Replace this binary with the latest release, then exit
+  --update-to VERSION Replace this binary with the given release, for example v1.5.0, then exit
 
 Options:
 `, version)
@@ -46,14 +54,27 @@ Flags must come before the mode, for example: etapo --config config.yaml run
 
 func main() {
 	var configPath string
-	var showVersion bool
+	var showVersion, updateLatest bool
+	var updateTo string
 	flag.StringVar(&configPath, "config", "config.yaml", "Path to YAML configuration file")
 	flag.BoolVar(&showVersion, "version", false, "Print the version and exit")
+	flag.BoolVar(&updateLatest, "update", false, "Update etapo to the latest release and exit")
+	flag.StringVar(&updateTo, "update-to", "", "Update etapo to the given release, for example v1.5.0, and exit")
 	flag.Usage = usage
 	flag.Parse()
 
 	if showVersion {
 		fmt.Printf("etapo %s\n", version)
+		return
+	}
+
+	if updateLatest || updateTo != "" {
+		if len(flag.Args()) > 0 {
+			fmt.Fprintf(os.Stderr, "etapo: --update and --update-to cannot be combined with a mode\n\n")
+			flag.Usage()
+			os.Exit(2)
+		}
+		runUpdate(updateTo)
 		return
 	}
 
@@ -147,4 +168,30 @@ func main() {
 	}
 
 	log.Println("[Etapo] Exited cleanly.")
+}
+
+// runUpdate replaces the running binary with the latest release, or with target when it is set.
+func runUpdate(target string) {
+	exe, err := os.Executable()
+	if err != nil {
+		log.Fatalf("Cannot find the etapo binary: %v", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+
+	res, err := update.Run(context.Background(), update.Options{
+		Version:    target,
+		Current:    version,
+		Executable: exe,
+	})
+	if err != nil {
+		log.Fatalf("Update failed: %v", err)
+	}
+	if res.UpToDate {
+		fmt.Printf("etapo %s is already installed.\n", res.Version)
+		return
+	}
+	fmt.Printf("Updated %s to etapo %s. The previous binary is kept as %s.prev.\n", exe, res.Version, exe)
+	fmt.Println("Restart etapo to run the new version, for example: sudo systemctl restart etapo")
 }

@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-11-07
+
+### Added
+- `etapo --update` replaces the binary with the latest release, and `etapo --update-to VERSION` installs a given release, for example `v1.5.0`. The download is checked against the release's SHA-256 checksums and its GitHub attestation, which shows it was built by the release workflow. The attestation is checked with the GitHub CLI, which must be installed but needs no token. The new binary must report the expected version before it replaces the current one. The previous binary is kept as `etapo.prev`. Restart etapo afterwards to run the new version.
+- Release archives carry a GitHub attestation (build provenance), created by the release workflow.
+
 ## [1.6.0] - 2026-11-07
 
 ### Added

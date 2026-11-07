@@ -136,3 +136,25 @@ This document tracks all foundational decisions for the `etapo` project, recordi
   - The database file does not shrink after a purge. Disk use is bounded by the peak amount of data kept within the retention window, not by the total ever recorded.
   - Retention is applied at most one day late. A process that is not running cannot purge, so data is kept longer until the next start.
   - Changing `retention_days` takes effect at the next start, and the next daily run removes data that is now outside the window.
+
+---
+
+### ADR-010: Self-Update from GitHub Releases with Attestation Checks via the GitHub CLI
+
+- **Status:** Accepted
+- **Context:** Updating the Raspberry Pi meant copying a binary by hand. The Pi is reachable only on the LAN, so CI cannot push to it. Release archives are now published with a GitHub attestation (SLSA build provenance) created by `release.yml`. Updates must not restart the service or overwrite files without the user starting them (see ADR-009 for the same reasoning about external timers).
+- **Alternatives Considered:**
+  - *Verify the attestation in Go with `sigstore-go`:* no token or external tool, but it linked about 350 more packages. The binary grew from 11.8 MB to 23.5 MB (linux/arm64) and the daemon's resident memory from about 18 MB to about 28 MB on macOS. That is too much for a check that runs once per update, and it approaches the 30 MB budget.
+  - *`gh attestation verify` without `--bundle`:* needs a GitHub login, even for a public repository.
+  - *Checksum only:* proves that the download matches `checksums.txt`, but not that the release was built by this repository's workflow.
+  - *Automatic updater timer:* rejected for the reasons in ADR-009 and the restart rule for the Pi.
+- **Decision:**
+  1. `etapo --update` installs the latest release and `etapo --update-to VERSION` installs a given one. Both replace only the binary and exit. Neither restarts the service nor touches the config or database.
+  2. Before replacing anything, the archive's SHA-256 must match `checksums.txt`, and the new binary must report the expected version.
+  3. The archive's attestations are fetched from the GitHub API without a token. Each Sigstore bundle is checked by the GitHub CLI with `gh attestation verify --bundle`, requiring the signer workflow `prolane/etapo/.github/workflows/release.yml`.
+  4. The previous binary is kept as `etapo.prev`.
+- **Consequences:**
+  - The GitHub CLI must be installed on the same machine. No token is needed for a public repository.
+  - The binary does not link any Sigstore code. The only new dependency is `github.com/golang/snappy`, which decodes the compressed bundles.
+  - Releases published before attestations existed (v1.6.0 and earlier) cannot be installed with `--update-to`.
+  - Trust rests on the GitHub attestation API, the Sigstore public-good instance and the release workflow's identity.

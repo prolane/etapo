@@ -3,6 +3,7 @@ module etapo
 go 1.27
 
 require (
+	github.com/golang/snappy v1.0.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.61.1
 )
