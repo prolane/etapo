@@ -12,7 +12,7 @@ func validConfig() *Config {
 	cfg.TapoAuth.Username = "user@example.com"
 	cfg.TapoAuth.Password = "secret"
 	cfg.Plugs = []PlugConfig{
-		{ID: "office", Name: "Office", Type: "tapo", IP: "192.168.20.105"},
+		{ID: "office", Name: "Office", Type: "tapo", IP: "192.168.1.105"},
 	}
 	return cfg
 }
@@ -77,7 +77,7 @@ func TestValidate(t *testing.T) {
 
 func TestLoadRejectsInvalidConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	content := "plugs:\n  - id: office\n    type: tapo\n    ip: 192.168.20.105\n"
+	content := "plugs:\n  - id: office\n    type: tapo\n    ip: 192.168.1.105\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 
 func TestLoadAppliesEnvCredentials(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	content := "plugs:\n  - id: office\n    type: tapo\n    ip: 192.168.20.105\n"
+	content := "plugs:\n  - id: office\n    type: tapo\n    ip: 192.168.1.105\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}

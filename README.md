@@ -12,6 +12,7 @@
 - **Zero Runtime Dependencies:** No Docker, no Node.js, and no external database needed. The web UI is embedded directly into the single binary.
 - **Real-Time Web Dashboard:** Instant live wattage updates via Server-Sent Events (SSE), per-socket relay toggle switches, and historical consumption graphs.
 - **Dual Mode (Hardware & Simulator):** Built-in realistic mock driver (fridge, TV, kettle, workstation curves) for development before physical sockets arrive.
+- **Survives Address Changes:** When a Tapo plug gets a new IP address from the router, etapo finds it again by its MAC address, and the dashboard offers to update `config.yaml`. Plugs that stop answering are marked offline.
 
 ---
 
@@ -120,6 +121,12 @@ A missing config file is an error; etapo never falls back to the example config.
 
 ---
 
+## Configuration
+
+All settings are in one YAML file (`config.yaml` by default). The complete reference, with the default for each key, the validation rules and what etapo writes to the file, is in **[docs/configuration.md](docs/configuration.md)**.
+
+---
+
 ## Configuring Real Tapo P115 Plugs
 
 1. In the Tapo app, signed in with the same account as in step 3, enable third-party access:
@@ -145,6 +152,8 @@ A missing config file is an error; etapo never falls back to the example config.
        type: "tapo"
        ip: "192.168.1.50"
    ```
+
+   Reserve each plug's address in your router, bound to its MAC address (a DHCP reservation), so the address does not change. If a plug still gets a new address, etapo finds it again by MAC and the dashboard offers to update the `ip` here. See [Plug addresses](docs/configuration.md#plug-addresses).
 
 5. Restart etapo and check the log for `handshake1 returned HTTP 403` on any plug.
 
@@ -231,15 +240,16 @@ sudo systemctl status etapo
 | Endpoint | Method | Description |
 |---|---|---|
 | `/health` | `GET` | Health check endpoint |
-| `/api/summary?nights=N` | `GET` | Aggregated total live Watts, today's kWh, estimated cost and standby. `nights` (1-365, default 7) sets how many nights the standby average covers |
-| `/api/plugs?nights=N` | `GET` | List all plugs with latest telemetry, on/off status and standby. `nights` as for `/api/summary` |
+| `/api/summary?nights=N` | `GET` | Aggregated total live Watts (offline plugs left out), today's kWh, estimated cost and standby. `nights` (1-365, default 7) sets how many nights the standby average covers. `offline_after_sec` is how old a reading may be before its plug counts as offline |
+| `/api/plugs?nights=N` | `GET` | List all plugs with latest telemetry, on/off status and standby. Each plug also has `online`, `config_ip` (its address in `config.yaml`, for Tapo plugs) and `mac`. `nights` as for `/api/summary` |
 | `/api/plugs/:id` | `GET` | Details for a specific plug |
 | `/api/plugs/:id/history?range=day\|24h\|7d\|month` | `GET` | Average power per bucket for the detail chart: `day` (a local calendar day, `date=YYYY-MM-DD`, default today) and `24h` in 5 minute buckets, `7d` in 1 hour buckets, `month` (a calendar month, `month=YYYY-MM`, default current) in 4 hour buckets. Buckets without readings are `null`. `today` (same as `day`), `1h` (1 minute buckets) and `30d` (4 hours) are also accepted |
 | `/api/breakdown?range=today\|month&by=plug\|category` | `GET` | Consumption per hour (today) or per day (month) for the stacked chart. Pick a past period with `date=YYYY-MM-DD` (day) or `month=YYYY-MM` (month). Future periods return 400 |
 | `/api/leaderboard/day?date=YYYY-MM-DD` | `GET` | Each plug's peak power, kWh and estimated cost for a local calendar day. Defaults to today; future days return 400 |
 | `/api/leaderboard/month?month=YYYY-MM` | `GET` | Each plug's peak power, kWh and estimated cost for a calendar month. Defaults to the current month; future months return 400 |
 | `/api/plugs/:id/power` | `POST` | Toggle plug relay: `{"on": true\|false}` |
-| `/api/events` | `GET` | Server-Sent Events (SSE) real-time stream of socket readings |
+| `/api/plugs/:id/config-ip` | `POST` | Writes the address a Tapo plug was found at into `config.yaml`: `{"ip": "x.x.x.x"}`. Only that plug's `ip` line changes, and a backup is kept. Returns 409 if the plug is not at that address or the file already has it. See [docs/configuration.md](docs/configuration.md#what-etapo-writes-to-the-file) |
+| `/api/events` | `GET` | Server-Sent Events (SSE) real-time stream of socket readings (`reading`) and of plugs found at a new address (`plug_moved`) |
 
 ---
 

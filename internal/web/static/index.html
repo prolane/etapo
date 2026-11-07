@@ -65,6 +65,9 @@
   <!-- Main Content -->
   <main class="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
 
+    <!-- Plugs that moved to a new address, and the offer to update config.yaml -->
+    <div id="alerts" class="space-y-2 empty:hidden"></div>
+
     <!-- 1. TOP KPI BAR -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <!-- Total Current Usage -->
@@ -249,6 +252,7 @@
             <h3 id="modal-name" class="text-base font-bold text-white">Device Details</h3>
             <span id="modal-category" class="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">General</span>
             <span id="modal-model" class="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">P115</span>
+            <span id="modal-status" class="hidden text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">Offline</span>
           </div>
           <p id="modal-ip" class="text-xs text-slate-500 mt-0.5 font-mono">192.168.1.x</p>
         </div>
@@ -366,6 +370,9 @@
     let zoomSelection = null;
     let timelineDay = localDateString(new Date());
     let timelineMonth = localDateString(new Date()).slice(0, 7);
+    let offlineAfterMs = 60000;
+    const dismissedMoves = new Set();
+    const configErrors = {};
 
     const currencySymbols = { 'EUR': '€', 'GBP': '£', 'USD': '$' };
 
@@ -406,6 +413,7 @@
         document.getElementById('standby-window-badge').textContent = `${standbyWindow} Baseline`;
         document.getElementById('stat-standby-note').textContent = noStandbyDataText();
         document.getElementById('stat-standby-note').classList.toggle('hidden', hasStandby);
+        if (data.offline_after_sec) offlineAfterMs = data.offline_after_sec * 1000;
       } catch (err) {
         console.error('Failed to fetch summary:', err);
       }
@@ -416,10 +424,13 @@
         const res = await fetch(`/api/plugs?nights=${standbyNights}`);
         if (!res.ok) return;
         plugsData = await res.json();
+        refreshOnline();
 
+        renderAlerts();
         renderCategories();
         renderStandbyCards();
         renderLeaderboard();
+        if (selectedPlugId) updateModalData(selectedPlugId);
       } catch (err) {
         console.error('Failed to fetch plugs:', err);
       }
@@ -543,8 +554,9 @@
           <tr class="hover:bg-slate-800/40 transition cursor-pointer group" onclick="openModal('${p.id}', 'leaderboard')">
             <!-- Name -->
             <td class="py-3 px-3 font-sans font-medium text-white flex items-center gap-2">
-              <span class="w-2 h-2 rounded-full ${isOn ? 'bg-emerald-400 live-dot' : 'bg-slate-600'}"></span>
+              <span class="w-2 h-2 rounded-full ${isOn && p.online ? 'bg-emerald-400 live-dot' : 'bg-slate-600'}"></span>
               <span class="group-hover:text-emerald-400 transition">${escapeHTML(p.name)}</span>
+              ${p.online ? '' : '<span class="text-[10px] font-sans font-semibold uppercase px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">Offline</span>'}
             </td>
             <!-- Category -->
             <td class="py-3 px-3 font-sans">
@@ -555,7 +567,7 @@
             ${showLive ? `
             <!-- Live Watts -->
             <td class="py-3 px-3 text-right font-bold ${liveW > 0 ? 'text-emerald-400' : 'text-slate-500'}">
-              ${liveW.toFixed(1)} W
+              ${p.online ? `${liveW.toFixed(1)} W` : '–'}
             </td>` : ''}
             <!-- Peak Watts -->
             <td class="py-3 px-3 text-right text-slate-300">
@@ -1098,6 +1110,13 @@
       document.getElementById('modal-model').textContent = p.model || 'P115';
       document.getElementById('modal-ip').textContent = `${p.ip || 'LAN'} · Driver: ${p.driver_type.toUpperCase()}`;
 
+      const status = document.getElementById('modal-status');
+      status.classList.toggle('hidden', p.online);
+      const lastSeen = readingTime(p);
+      status.textContent = !p.online && !isNaN(lastSeen)
+        ? `Offline · last reading ${new Date(lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+        : 'Offline';
+
       document.getElementById('modal-live-watts').textContent = `${liveW.toFixed(1)} W`;
       document.getElementById('modal-peak-watts').textContent = `${(p.peak_watts_today || liveW).toFixed(1)} W`;
       document.getElementById('modal-runtime').textContent = `${(p.runtime_today_hours || 0).toFixed(1)} h`;
@@ -1245,6 +1264,7 @@
           const p = plugsData.find(x => x.id === r.plug_id);
           if (p) {
             p.latest_reading = r;
+            p.online = isOnlineNow(p);
             if (r.power_watts > (p.peak_watts_today || 0)) {
               p.peak_watts_today = r.power_watts;
             }
@@ -1261,10 +1281,86 @@
         }
       });
 
+      evtSource.addEventListener('plug_moved', () => {
+        fetchPlugs();
+      });
+
       evtSource.onerror = () => {
         dot.className = 'w-2 h-2 rounded-full bg-amber-400';
         text.textContent = 'Reconnecting...';
       };
+    }
+
+    // Reading times can carry nanoseconds, which some browsers do not parse, so they are cut to milliseconds
+    function readingTime(p) {
+      if (!p.latest_reading) return NaN;
+      return Date.parse(p.latest_reading.timestamp.replace(/(\.\d{3})\d+/, '$1'));
+    }
+
+    function isOnlineNow(p) {
+      const t = readingTime(p);
+      return !isNaN(t) && Date.now() - t <= offlineAfterMs;
+    }
+
+    // Checks every plug against the current time. Returns true when a plug changed between online and offline.
+    function refreshOnline() {
+      let changed = false;
+      for (const p of plugsData) {
+        const online = isOnlineNow(p);
+        if (p.online !== online) {
+          p.online = online;
+          changed = true;
+        }
+      }
+      return changed;
+    }
+
+    // Plugs found at an address other than the one in config.yaml. Offers to write the new address to the file.
+    function renderAlerts() {
+      const box = document.getElementById('alerts');
+      const moved = plugsData.filter(p => p.config_ip && p.ip && p.ip !== p.config_ip && !dismissedMoves.has(`${p.id}|${p.ip}`));
+      box.innerHTML = moved.map(p => `
+        <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="space-y-1">
+            <p>
+              <span class="font-semibold text-amber-300">${escapeHTML(p.name)}</span> was found at
+              <span class="font-mono">${escapeHTML(p.ip)}</span>, but config.yaml still has
+              <span class="font-mono">${escapeHTML(p.config_ip)}</span>.
+            </p>
+            <p class="text-amber-200/70">Etapo keeps finding this plug by its MAC address. Update config.yaml so the next start uses the new address.</p>
+            ${configErrors[p.id] ? `<p class="text-red-300">${escapeHTML(configErrors[p.id])}</p>` : ''}
+          </div>
+          <div class="flex gap-2 shrink-0">
+            <button onclick="updateConfigIP('${p.id}', '${p.ip}')" class="px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-200 border border-amber-500/40 hover:bg-amber-500/30 transition">Update config.yaml</button>
+            <button onclick="dismissMove('${p.id}', '${p.ip}')" class="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:text-white transition">Dismiss</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function updateConfigIP(id, ip) {
+      try {
+        const res = await fetch(`/api/plugs/${id}/config-ip`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ip })
+        });
+        if (!res.ok) {
+          configErrors[id] = (await res.text()).trim();
+          renderAlerts();
+          return;
+        }
+        delete configErrors[id];
+        await fetchPlugs();
+      } catch (err) {
+        configErrors[id] = 'Could not reach etapo. Try again.';
+        renderAlerts();
+      }
+    }
+
+    function dismissMove(id, ip) {
+      dismissedMoves.add(`${id}|${ip}`);
+      renderAlerts();
     }
 
     function escapeHTML(str) {
@@ -1278,6 +1374,14 @@
       loadBreakdownChart();
       loadLeaderboardStats();
     }, 30000);
+
+    // Plugs go offline between readings, so their state is checked against the clock as well as on each reading
+    setInterval(() => {
+      if (!refreshOnline()) return;
+      renderLeaderboard();
+      fetchSummary();
+      if (selectedPlugId) updateModalData(selectedPlugId);
+    }, 5000);
 
     window.addEventListener('DOMContentLoaded', init);
   </script>

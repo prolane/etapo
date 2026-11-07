@@ -48,9 +48,16 @@ type EnergyUsage struct {
 	EnergyMonthKWh float64 `json:"energy_month_kwh"`
 }
 
+// Online reports whether a plug's latest stored reading is no older than offlineAfter.
+func Online(latest *EnergyReading, now time.Time, offlineAfter time.Duration) bool {
+	return latest != nil && now.Sub(latest.Timestamp) <= offlineAfter
+}
+
 // PlugWithLatest combines plug metadata, latest reading, and homeowner analytics.
 type PlugWithLatest struct {
 	Plug
+	Online             bool           `json:"online"`
+	ConfigIP           string         `json:"config_ip,omitempty"` // IP in config.yaml; empty for plugs without one
 	LatestReading      *EnergyReading `json:"latest_reading,omitempty"`
 	PeakWattsToday     float64        `json:"peak_watts_today"`     // Peak power recorded today (Max W)
 	AvgWattsToday      float64        `json:"avg_watts_today"`      // Average power consumption today
@@ -92,6 +99,7 @@ type SystemSummary struct {
 	Currency             string    `json:"currency"`
 	ActivePlugsCount     int       `json:"active_plugs_count"`
 	TotalPlugsCount      int       `json:"total_plugs_count"`
+	OfflineAfterSec      int       `json:"offline_after_sec"` // Plugs without a reading for this long are offline
 	LastUpdated          time.Time `json:"last_updated"`
 }
 

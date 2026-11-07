@@ -38,9 +38,11 @@ tapo_auth:
   username: "your-tplink-email@example.com"
   password: "your-tplink-password"
 
-# Registered smart plugs
+# Registered smart plugs. Full reference: docs/configuration.md
 # Use type "mock" for simulator testing before physical sockets arrive.
-# Switch type to "tapo" and specify local LAN IP when your Tapo P115 sockets arrive.
+# Switch type to "tapo" and specify the plug's local LAN IP when your Tapo P115 sockets arrive.
+# Reserve that IP for the plug in your router (DHCP reservation by MAC address). If the plug
+# gets another IP, etapo finds it again and the dashboard offers to update "ip" here.
 plugs:
   - id: "living-room-tv"
     name: "Living Room TV & Console"

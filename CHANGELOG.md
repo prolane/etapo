@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-11-07
+
+### Added
+- Tapo plugs are found again when the router gives them a new IP address. etapo learns each plug's MAC address on its first connection and, after three failed polls, searches the /24 network of the plug's last known address for it. The plug is used at the new address straight away, without a restart.
+- The dashboard shows a banner when a plug is at a different address than the one in config.yaml, with a button to write the new address to the file. Only that plug's `ip` line changes, and a backup of the file is kept.
+- Plugs without a recent reading are shown as offline, with an Offline badge on the leaderboard and in the device dialog. The threshold is three poll intervals plus one flush interval.
+- `GET /api/plugs` reports `online`, `config_ip` and `mac` for each plug. `GET /api/summary` reports `offline_after_sec`. `POST /api/plugs/:id/config-ip` writes the detected address of a Tapo plug to config.yaml. The event stream sends a `plug_moved` event when a plug is found at a new address.
+- The configuration reference is in docs/configuration.md, and the README links to it.
+
+### Changed
+- Before a session is opened to a Tapo plug, etapo checks the MAC address of the device at the configured address, and it checks the MAC address again after logging in. A different plug is refused, so no commands reach it.
+- Total live power and the live burn rate leave out plugs that are offline.
+
+### Fixed
+- A Tapo plug that changed its IP address stopped reporting until etapo was restarted with the new address.
+- etapo no longer accepts a different Tapo plug answering at a configured address as the configured plug.
+
 ## [1.3.0] - 2026-10-29
 
 ### Added

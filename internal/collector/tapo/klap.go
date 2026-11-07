@@ -24,13 +24,18 @@ import (
 	"etapo/internal/models"
 )
 
+// ErrWrongDevice means the device at the driver's address is not the expected plug.
+var ErrWrongDevice = errors.New("device at this address is a different plug")
+
 // Driver implements collector.DeviceDriver for TP-Link Tapo P115 plugs via the KLAP protocol.
 type Driver struct {
-	mu         sync.Mutex
-	ip         string
-	username   string
-	password   string
-	httpClient *http.Client
+	mu            sync.Mutex
+	ip            string
+	mac           string // MAC address of the expected plug; learned on the first login if empty
+	username      string
+	password      string
+	discoveryPort int
+	httpClient    *http.Client
 
 	// KLAP session keys
 	localSeed   []byte
@@ -44,12 +49,14 @@ type Driver struct {
 	lastLogin   time.Time
 }
 
-// NewDriver creates a new Tapo KLAP protocol driver.
-func NewDriver(ip, username, password string) *Driver {
+// NewDriver creates a new Tapo KLAP protocol driver. mac is the expected MAC address of the plug, or "" if not known yet.
+func NewDriver(ip, mac, username, password string) *Driver {
 	return &Driver{
-		ip:       ip,
-		username: username,
-		password: password,
+		ip:            ip,
+		mac:           NormalizeMAC(mac),
+		username:      username,
+		password:      password,
+		discoveryPort: DiscoveryPort,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
@@ -74,7 +81,7 @@ func (d *Driver) GetInfo(ctx context.Context) (*models.DeviceInfo, error) {
 		info.Model = model
 	}
 	if mac, ok := res["mac"].(string); ok {
-		info.MAC = mac
+		info.MAC = NormalizeMAC(mac)
 	}
 	if deviceOn, ok := res["device_on"].(bool); ok {
 		info.IsOn = deviceOn
@@ -175,6 +182,10 @@ func (d *Driver) executeMethod(ctx context.Context, method string, params map[st
 
 // login performs the 2-step KLAP handshake.
 func (d *Driver) login(ctx context.Context) error {
+	if err := d.checkAddress(ctx); err != nil {
+		return err
+	}
+
 	// Generate random 16-byte local seed
 	d.localSeed = make([]byte, 16)
 	if _, err := io.ReadFull(rand.Reader, d.localSeed); err != nil {
@@ -248,9 +259,54 @@ func (d *Driver) login(ctx context.Context) error {
 		return fmt.Errorf("handshake2 returned HTTP %d", resp2.StatusCode)
 	}
 
+	if err := d.verifyDevice(ctx); err != nil {
+		return err
+	}
+
 	d.isConnected = true
 	d.lastLogin = time.Now()
 	return nil
+}
+
+// verifyDevice checks the MAC address of the device that completed the handshake before any command is sent.
+// Plugs of one Tapo account share credentials, so after a DHCP change the old address can answer for another plug.
+func (d *Driver) verifyDevice(ctx context.Context) error {
+	res, err := d.sendEncrypted(ctx, "get_device_info", nil)
+	if err != nil {
+		return err
+	}
+
+	mac := ""
+	if v, ok := res["mac"].(string); ok {
+		mac = NormalizeMAC(v)
+	}
+	if mac == "" {
+		return errors.New("device did not report a valid MAC address")
+	}
+	if d.mac == "" {
+		d.mac = mac
+		return nil
+	}
+	if mac != d.mac {
+		return fmt.Errorf("%w: expected %s at %s, found %s", ErrWrongDevice, d.mac, d.ip, mac)
+	}
+	return nil
+}
+
+// IP returns the address the driver currently talks to.
+func (d *Driver) IP() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.ip
+}
+
+// Relocate points the driver at a new address of the same plug. The session belongs to the old address, so it is dropped.
+func (d *Driver) Relocate(ip string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.ip = ip
+	d.isConnected = false
+	d.sessionID = ""
 }
 
 func (d *Driver) sendEncrypted(ctx context.Context, method string, params map[string]interface{}) (map[string]interface{}, error) {

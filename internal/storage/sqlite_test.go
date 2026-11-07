@@ -76,7 +76,7 @@ func TestStorageLifecycle(t *testing.T) {
 	}
 
 	// 4. Verify Summary
-	summary, err := store.GetSummary(ctx, "EUR", 0.30, testStandby)
+	summary, err := store.GetSummary(ctx, "EUR", 0.30, testStandby, time.Minute)
 	if err != nil {
 		t.Fatalf("failed to get summary: %v", err)
 	}
