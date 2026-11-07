@@ -393,7 +393,28 @@
       await loadLeaderboardStats();
     }
 
-    async function fetchSummary() {
+    // Runs fetcher at most once at a time. A call made while a request is running gets that request's
+    // promise instead of starting another one, and one follow-up run covers changes made in the meantime.
+    function singleFlight(fetcher) {
+      let running = null;
+      let again = false;
+      return function () {
+        if (running) {
+          again = true;
+          return running;
+        }
+        running = (async () => {
+          do {
+            again = false;
+            await fetcher();
+          } while (again);
+          running = null;
+        })();
+        return running;
+      };
+    }
+
+    async function loadSummary() {
       try {
         const res = await fetch(`/api/summary?nights=${standbyNights}`);
         if (!res.ok) return;
@@ -418,8 +439,9 @@
         console.error('Failed to fetch summary:', err);
       }
     }
+    const fetchSummary = singleFlight(loadSummary);
 
-    async function fetchPlugs() {
+    async function loadPlugs() {
       try {
         const res = await fetch(`/api/plugs?nights=${standbyNights}`);
         if (!res.ok) return;
@@ -435,6 +457,7 @@
         console.error('Failed to fetch plugs:', err);
       }
     }
+    const fetchPlugs = singleFlight(loadPlugs);
 
     function renderCategories() {
       const container = document.getElementById('category-filters');
@@ -1371,6 +1394,7 @@
 
     // Auto-refresh stacked chart every 30 seconds
     setInterval(() => {
+      fetchSummary();
       loadBreakdownChart();
       loadLeaderboardStats();
     }, 30000);
@@ -1379,7 +1403,6 @@
     setInterval(() => {
       if (!refreshOnline()) return;
       renderLeaderboard();
-      fetchSummary();
       if (selectedPlugId) updateModalData(selectedPlugId);
     }, 5000);
 
