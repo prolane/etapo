@@ -455,4 +455,10 @@ func TestCLIRejectsBadInvocations(t *testing.T) {
 	if code, out := run("--config", filepath.Join(dir, "missing.yaml"), "--version"); code != 0 || !strings.HasPrefix(out, "etapo ") {
 		t.Errorf("--version without config: expected version line and exit 0, got exit %d: %s", code, out)
 	}
+	if code, out := run("--update-to", "latest"); code == 0 || !strings.Contains(out, "invalid version") {
+		t.Errorf("--update-to with a bad version: expected failure mentioning the version, got exit %d: %s", code, out)
+	}
+	if code, out := run("--update", "run"); code != 2 || !strings.Contains(out, "cannot be combined with a mode") {
+		t.Errorf("--update with a mode: expected exit 2 with usage, got exit %d: %s", code, out)
+	}
 }
