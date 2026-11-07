@@ -12,6 +12,10 @@ on:
         description: Tag to build and publish, for example v1.2.3
         required: true
         type: string
+    secrets:
+      RELEASE_SIGNING_KEYS:
+        description: Ed25519 keys that sign the release checksums (see docs/release-signing.md)
+        required: false
   # Publish an existing tag again, for example after a failed release run
   workflow_dispatch:
     inputs:
