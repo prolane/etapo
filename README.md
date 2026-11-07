@@ -244,9 +244,8 @@ etapo --update               # latest release
 etapo --update-to v1.5.0     # a specific release (also used to go back to an older one)
 ```
 
-- Before anything is replaced, the download is checked against the release's `checksums.txt`, and its GitHub attestation is verified. The attestation shows that the archive was built by this repository's release workflow. The new binary must also report the expected version.
-- Checking the attestation needs the [GitHub CLI](https://cli.github.com) (`gh`), installed on the same machine. No GitHub token is needed, because the repository is public. The check needs internet access to `api.github.com` and `tuf-repo-cdn.sigstore.dev`. It was tested with gh 2.103.1.
-- Releases published before attestations were added (up to v1.6.0) have none, so `--update-to` cannot install them.
+- Before anything is replaced, the release's `checksums.txt` must carry a signature from one of etapo's release keys, the archive's SHA-256 must match it, and the new binary must report the expected version. No network service other than GitHub is needed, and no GitHub login or token.
+- Releases published before the first signed release (v1.8.0) are not signed, so `--update-to` cannot install them. How releases are signed, and how the keys are rotated, is described in [docs/release-signing.md](docs/release-signing.md).
 - The previous binary is kept as `etapo.prev` next to it. To go back, stop etapo and run `mv etapo.prev etapo`.
 - `config.yaml` and the database are not changed, and the service is not restarted. Restart it afterwards to run the new version: `sudo systemctl restart etapo`.
 - The directory that holds the binary must be writable by the user running the command. If you installed etapo in `/usr/local/bin`, run it with `sudo`.

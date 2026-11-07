@@ -32,10 +32,6 @@ jobs:
     name: Build & Release Binaries
     needs: ci
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      attestations: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -104,12 +100,13 @@ jobs:
           echo "Generated packages:"
           ls -lh
 
-      - name: Attest release archives
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: |
-            dist/packages/*.tar.gz
-            dist/packages/*.zip
+      - name: Sign checksums
+        env:
+          RELEASE_SIGNING_KEYS: ${{ secrets.RELEASE_SIGNING_KEYS }}
+        run: |
+          set -e
+          go run ./tools/sign-release sign dist/packages/checksums.txt
+          go run ./tools/sign-release verify dist/packages/checksums.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3

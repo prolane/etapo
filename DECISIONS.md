@@ -139,22 +139,24 @@ This document tracks all foundational decisions for the `etapo` project, recordi
 
 ---
 
-### ADR-010: Self-Update from GitHub Releases with Attestation Checks via the GitHub CLI
+### ADR-010: Self-Update from GitHub Releases with Signed Checksums
 
 - **Status:** Accepted
-- **Context:** Updating the Raspberry Pi meant copying a binary by hand. The Pi is reachable only on the LAN, so CI cannot push to it. Release archives are now published with a GitHub attestation (SLSA build provenance) created by `release.yml`. Updates must not restart the service or overwrite files without the user starting them (see ADR-009 for the same reasoning about external timers).
+- **Context:** Updating the Raspberry Pi meant copying a binary by hand. The Pi is reachable only on the LAN, so CI cannot push to it. The updater must not restart the service or overwrite files without the user starting it (see ADR-009 for the same reasoning about external timers). The update must verify that a release came from this project, and that check must not depend on an external service. An attempt to use GitHub attestations (SLSA provenance via Sigstore) failed when the public Sigstore transparency log returned HTTP 500 for over an hour during a database upgrade, which blocked the release job.
 - **Alternatives Considered:**
-  - *Verify the attestation in Go with `sigstore-go`:* no token or external tool, but it linked about 350 more packages. The binary grew from 11.8 MB to 23.5 MB (linux/arm64) and the daemon's resident memory from about 18 MB to about 28 MB on macOS. That is too much for a check that runs once per update, and it approaches the 30 MB budget.
-  - *`gh attestation verify` without `--bundle`:* needs a GitHub login, even for a public repository.
-  - *Checksum only:* proves that the download matches `checksums.txt`, but not that the release was built by this repository's workflow.
+  - *GitHub attestations, verified with `gh attestation verify --bundle`:* needs a Sigstore transparency log at release time and at update time, so a Sigstore outage blocks releases.
+  - *Verify the attestation in Go with `sigstore-go`:* no external tool needed, but about 350 more packages. The binary grew from 11.8 MB to 23.5 MB (linux/arm64) and daemon resident memory from about 18 MB to about 28 MB on macOS. That is too much for a check that runs once per update.
+  - *Checksum only:* proves that a download matches `checksums.txt`, but not that the release came from this project, because an attacker who can replace a release can replace its checksums too.
   - *Automatic updater timer:* rejected for the reasons in ADR-009 and the restart rule for the Pi.
 - **Decision:**
   1. `etapo --update` installs the latest release and `etapo --update-to VERSION` installs a given one. Both replace only the binary and exit. Neither restarts the service nor touches the config or database.
-  2. Before replacing anything, the archive's SHA-256 must match `checksums.txt`, and the new binary must report the expected version.
-  3. The archive's attestations are fetched from the GitHub API without a token. Each Sigstore bundle is checked by the GitHub CLI with `gh attestation verify --bundle`, requiring the signer workflow `prolane/etapo/.github/workflows/release.yml`.
-  4. The previous binary is kept as `etapo.prev`.
+  2. The release workflow signs `checksums.txt` with Ed25519 keys held in the `RELEASE_SIGNING_KEYS` secret and writes `checksums.txt.sig`. The public keys are built into etapo (`builtinReleaseKeys`). A release is installed only when a signature from one of them verifies.
+  3. The archive's SHA-256 must match `checksums.txt`, and the new binary must report the expected version, before anything is replaced.
+  4. Key rotation is supported without a gap: a release can carry several signatures, and a binary trusts several keys. The procedure is in `docs/release-signing.md`.
+  5. The previous binary is kept as `etapo.prev`.
 - **Consequences:**
-  - The GitHub CLI must be installed on the same machine. No token is needed for a public repository.
-  - The binary does not link any Sigstore code. The only new dependency is `github.com/golang/snappy`, which decodes the compressed bundles.
-  - Releases published before attestations existed (v1.6.0 and earlier) cannot be installed with `--update-to`.
-  - Trust rests on the GitHub attestation API, the Sigstore public-good instance and the release workflow's identity.
+  - No external service, GitHub login or token is needed at release time or update time, beyond GitHub itself.
+  - The binary links no Sigstore code. The only new dependency is the Go standard library's `crypto/ed25519`.
+  - The release workflow holds the signing key. Anyone who can change the release workflow on `main` can therefore sign a release, which is the same trust as publishing a release today. The key must be rotated if it may have leaked.
+  - A binary cannot be protected against a leaked key by the updater alone. The response is to rotate the key and install the replacement release by hand (`docs/release-signing.md`).
+  - Releases published before the first signed release cannot be installed with `--update-to`.
