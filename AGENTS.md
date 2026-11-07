@@ -96,7 +96,7 @@ Prefer the `Makefile` targets (`make help` lists them): `make build`, `make run`
 - **Versioning:** Semantic versioning with `vMAJOR.MINOR.PATCH` tags (currently pre-1.0).
 - **Current version:** the latest tag on `origin`. Check with `git ls-remote --tags origin`.
 - **Automatic releases:** Merging a pull request to `main` creates the next tag and publishes a release (`.github/workflows/auto-tag.yml`):
-  - Dependabot PRs bump the PATCH version.
+  - Dependabot PRs bump the PATCH version. A scheduled run (every 3 hours) tags one patch release for all untagged Dependabot PRs, so several updates share one release. Merges made with `GITHUB_TOKEN` do not trigger the `closed` event, which is why Dependabot PRs use the schedule.
   - All other PRs (features and fixes made by us) bump the MINOR version and reset PATCH to 0.
   - A PR with the `release:major` label bumps the MAJOR version and resets MINOR and PATCH to 0. Use it for the first stable release (v1.0.0) and for breaking changes. Add the label before the PR is merged; the label is read at merge time.
 - **Release build:** `.github/workflows/release.yml` cross-compiles all targets (linux arm64/armv7/amd64, darwin arm64/amd64, windows amd64), packages them with checksums, and publishes a GitHub Release. It runs from a tag push or from `auto-tag.yml`.
