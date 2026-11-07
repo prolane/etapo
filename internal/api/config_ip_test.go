@@ -42,7 +42,7 @@ func newConfigIPServer(t *testing.T) (*Server, string) {
 		t.Fatalf("failed to load config: %v", err)
 	}
 
-	store, err := storage.New(filepath.Join(dir, "etapo.db"), time.Second, 10)
+	store, err := storage.New(filepath.Join(dir, "etapo.db"), time.Second)
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}

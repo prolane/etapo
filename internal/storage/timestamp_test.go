@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 
 func newTimestampTestStore(t *testing.T) *Storage {
 	t.Helper()
-	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second, 10)
+	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}
@@ -23,23 +22,6 @@ func newTimestampTestStore(t *testing.T) *Storage {
 		t.Fatalf("failed to upsert plug: %v", err)
 	}
 	return store
-}
-
-// Timestamp comparisons in queries rely on every reading being stored in the same text format.
-func TestReadingsAreStoredInOneFormat(t *testing.T) {
-	store := newTimestampTestStore(t)
-	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: time.Now(), PowerWatts: 1})
-	if err := store.Flush(); err != nil {
-		t.Fatalf("flush failed: %v", err)
-	}
-
-	var stored string
-	if err := store.db.QueryRow(`SELECT CAST(timestamp AS TEXT) FROM energy_readings`).Scan(&stored); err != nil {
-		t.Fatalf("failed to read timestamp: %v", err)
-	}
-	if len(stored) < 30 || stored[10] != ' ' || !strings.HasSuffix(stored, " +0000 UTC") {
-		t.Errorf("expected timestamps like 2026-10-29 18:46:39.577524 +0000 UTC, got %q", stored)
-	}
 }
 
 func TestMonthStatsExcludeReadingsBeforeTheMonth(t *testing.T) {

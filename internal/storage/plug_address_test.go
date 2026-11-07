@@ -12,7 +12,7 @@ import (
 const plugMAC = "60-15-6F-00-00-01"
 
 func TestPlugMACAndAddressRoundTrip(t *testing.T) {
-	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second, 10)
+	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestPlugMACAndAddressRoundTrip(t *testing.T) {
 }
 
 func TestSummaryLeavesOutOfflinePlugsOutOfLivePower(t *testing.T) {
-	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second, 10)
+	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}

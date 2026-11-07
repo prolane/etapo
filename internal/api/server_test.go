@@ -35,7 +35,7 @@ func TestAPIServer(t *testing.T) {
 		},
 	}
 
-	store, err := storage.New(cfg.Storage.DBPath, 1*time.Second, 10)
+	store, err := storage.New(cfg.Storage.DBPath, time.Second)
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}

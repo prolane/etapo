@@ -8,6 +8,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,33 +19,108 @@ import (
 )
 
 const (
-	retentionInterval  = 24 * time.Hour
-	retentionBatchSize = 5000
+	// bucketSec is the length of a stored sample bucket. The dashboard never shows anything finer.
+	bucketSec = 300
+	// dayLayout is the local calendar day used as the key of a daily row.
+	dayLayout         = "2006-01-02"
+	retentionInterval = 24 * time.Hour
 )
 
-// Storage handles persistence of plugs and energy readings in SQLite.
+// Storage keeps plug metadata, the live state of each plug, five-minute sample buckets and daily totals in SQLite.
+// Readings are not stored one by one: they are summed into buckets in memory and written with each flush.
 type Storage struct {
 	db              *sql.DB
-	bufferMu        sync.Mutex
-	buffer          []models.EnergyReading
-	maxBufferSize   int
+	dbPath          string
 	flushInterval   time.Duration
 	stopFlush       chan struct{}
 	flushDone       chan struct{}
 	retentionCancel context.CancelFunc
 	retentionDone   chan struct{}
+
+	mu     sync.Mutex
+	plugs  map[string]*plugMem
+	days   map[dayKey]*dayDelta
+	closed []closedBucket
+}
+
+// bucketAgg is the sum, maximum and count of the power samples in a bucket. Sums can be merged, averages cannot.
+type bucketAgg struct {
+	sumMW int64
+	maxMW int64
+	n     int64
+}
+
+func (a *bucketAgg) add(mw int64) {
+	if a.n == 0 || mw > a.maxMW {
+		a.maxMW = mw
+	}
+	a.sumMW += mw
+	a.n++
+}
+
+func (a *bucketAgg) merge(o bucketAgg) {
+	if o.n == 0 {
+		return
+	}
+	if a.n == 0 || o.maxMW > a.maxMW {
+		a.maxMW = o.maxMW
+	}
+	a.sumMW += o.sumMW
+	a.n += o.n
+}
+
+// plugMem is the in-memory state of one plug between two flushes.
+type plugMem struct {
+	isOn        *bool
+	sampled     bool
+	sampledAt   int64
+	powerMW     int64
+	energyToday int64
+	energyMonth int64
+	hasOpen     bool
+	openStart   int64
+	open        bucketAgg
+	dirty       bool
+}
+
+type closedBucket struct {
+	plug  string
+	start int64
+	agg   bucketAgg
+}
+
+type dayKey struct {
+	plug string
+	day  string
+}
+
+// dayDelta is what a daily row gains between two flushes. The energy counters are the last values seen.
+type dayDelta struct {
+	energyToday int64
+	energyMonth int64
+	lastTS      int64
+	peakMW      int64
+	sumMW       int64
+	n           int64
+}
+
+func (d *dayDelta) absorb(o *dayDelta) {
+	if o.lastTS >= d.lastTS {
+		d.lastTS, d.energyToday, d.energyMonth = o.lastTS, o.energyToday, o.energyMonth
+	}
+	if o.peakMW > d.peakMW {
+		d.peakMW = o.peakMW
+	}
+	d.sumMW += o.sumMW
+	d.n += o.n
 }
 
 // New creates and initializes SQLite storage with WAL mode and in-memory batching.
-func New(dbPath string, flushInterval time.Duration, maxBufferSize int) (*Storage, error) {
-	if maxBufferSize <= 0 {
-		maxBufferSize = 100
-	}
+func New(dbPath string, flushInterval time.Duration) (*Storage, error) {
 	if flushInterval <= 0 {
 		flushInterval = 30 * time.Second
 	}
 
-	// Ensure parent directory exists
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create db directory %q: %w", dir, err)
@@ -54,23 +131,26 @@ func New(dbPath string, flushInterval time.Duration, maxBufferSize int) (*Storag
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite db: %w", err)
 	}
-
-	// Pool settings: In WAL mode, SQLite allows concurrent readers and 1 writer
 	db.SetMaxOpenConns(5)
 	db.SetMaxIdleConns(5)
 
 	s := &Storage{
 		db:            db,
-		buffer:        make([]models.EnergyReading, 0, maxBufferSize),
-		maxBufferSize: maxBufferSize,
+		dbPath:        dbPath,
 		flushInterval: flushInterval,
 		stopFlush:     make(chan struct{}),
 		flushDone:     make(chan struct{}),
+		plugs:         make(map[string]*plugMem),
+		days:          make(map[dayKey]*dayDelta),
 	}
 
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("schema migration failed: %w", err)
+	}
+	if err := s.reopenOpenBuckets(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to restore open buckets: %w", err)
 	}
 
 	go s.flushLoop()
@@ -79,6 +159,16 @@ func New(dbPath string, flushInterval time.Duration, maxBufferSize int) (*Storag
 }
 
 func (s *Storage) migrate() error {
+	var legacy int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'energy_readings'`).Scan(&legacy); err != nil {
+		return err
+	}
+	if legacy > 0 {
+		if err := s.replaceRawReadings(); err != nil {
+			return err
+		}
+	}
+
 	schema := `
 	CREATE TABLE IF NOT EXISTS plugs (
 		id TEXT PRIMARY KEY,
@@ -94,20 +184,38 @@ func (s *Storage) migrate() error {
 		updated_at DATETIME NOT NULL
 	);
 
-	CREATE TABLE IF NOT EXISTS energy_readings (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		plug_id TEXT NOT NULL,
-		timestamp DATETIME NOT NULL,
-		power_watts REAL NOT NULL,
-		voltage_v REAL NOT NULL,
-		current_ma REAL NOT NULL,
-		energy_today_kwh REAL NOT NULL,
-		energy_month_kwh REAL NOT NULL,
-		FOREIGN KEY(plug_id) REFERENCES plugs(id)
+	CREATE TABLE IF NOT EXISTS plug_state (
+		plug_id         TEXT PRIMARY KEY,
+		is_on           INTEGER NOT NULL DEFAULT 1,
+		sampled_at      INTEGER,
+		power_mw        INTEGER NOT NULL DEFAULT 0,
+		energy_today_wh INTEGER NOT NULL DEFAULT 0,
+		energy_month_wh INTEGER NOT NULL DEFAULT 0,
+		open_bucket     INTEGER,
+		open_sum_mw     INTEGER NOT NULL DEFAULT 0,
+		open_max_mw     INTEGER NOT NULL DEFAULT 0,
+		open_n          INTEGER NOT NULL DEFAULT 0
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_readings_plug_ts ON energy_readings(plug_id, timestamp DESC);
-	CREATE INDEX IF NOT EXISTS idx_readings_ts ON energy_readings(timestamp DESC);
+	CREATE TABLE IF NOT EXISTS samples_5m (
+		plug_id TEXT    NOT NULL,
+		bucket  INTEGER NOT NULL,
+		sum_mw  INTEGER NOT NULL,
+		max_mw  INTEGER NOT NULL,
+		n       INTEGER NOT NULL,
+		PRIMARY KEY (plug_id, bucket)
+	) WITHOUT ROWID;
+
+	CREATE TABLE IF NOT EXISTS daily (
+		plug_id         TEXT    NOT NULL,
+		day             TEXT    NOT NULL,
+		energy_today_wh INTEGER NOT NULL,
+		energy_month_wh INTEGER NOT NULL,
+		peak_mw         INTEGER NOT NULL,
+		sum_mw          INTEGER NOT NULL,
+		n               INTEGER NOT NULL,
+		PRIMARY KEY (plug_id, day)
+	) WITHOUT ROWID;
 	`
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -119,57 +227,261 @@ func (s *Storage) migrate() error {
 	return nil
 }
 
-// RecordReading appends an energy reading to the in-memory write buffer.
-// If the buffer reaches maxBufferSize, it triggers an immediate synchronous flush.
-func (s *Storage) RecordReading(r models.EnergyReading) {
-	s.bufferMu.Lock()
-	s.buffer = append(s.buffer, r)
-	shouldFlush := len(s.buffer) >= s.maxBufferSize
-	s.bufferMu.Unlock()
+// replaceRawReadings removes the table of individual readings from databases made before 1.10.0. The whole
+// database is copied first, so the raw data can still be examined. The copy is never removed by etapo.
+func (s *Storage) replaceRawReadings() error {
+	ext := filepath.Ext(s.dbPath)
+	backup := strings.TrimSuffix(s.dbPath, ext) + "-before-rollups-" + time.Now().Format("20060102-150405") + ext + ".bak"
+	if _, err := s.db.Exec(`VACUUM INTO ?`, backup); err != nil {
+		return fmt.Errorf("failed to back up the database to %s before replacing raw readings: %w", backup, err)
+	}
+	if _, err := s.db.Exec(`DROP TABLE energy_readings`); err != nil {
+		return fmt.Errorf("failed to drop raw readings: %w", err)
+	}
+	if _, err := s.db.Exec(`VACUUM`); err != nil {
+		return fmt.Errorf("failed to shrink the database: %w", err)
+	}
+	log.Printf("[Storage] Replaced raw readings with 5-minute rollups; the previous database is kept at %s", backup)
+	return nil
+}
 
-	if shouldFlush {
-		s.Flush()
+// reopenOpenBuckets moves the bucket that was still filling when the previous process stopped into the bucket
+// table. A bucket that is restarted later is merged with it by the same upsert.
+func (s *Storage) reopenOpenBuckets() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`
+		INSERT INTO samples_5m (plug_id, bucket, sum_mw, max_mw, n)
+		SELECT plug_id, open_bucket, open_sum_mw, open_max_mw, open_n FROM plug_state WHERE open_n > 0
+		ON CONFLICT (plug_id, bucket) DO UPDATE SET
+			sum_mw = sum_mw + excluded.sum_mw,
+			max_mw = max(max_mw, excluded.max_mw),
+			n = n + excluded.n
+	`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE plug_state SET open_bucket = NULL, open_sum_mw = 0, open_max_mw = 0, open_n = 0 WHERE open_n > 0`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func toMilliwatts(watts float64) int64 {
+	return int64(math.Round(watts * 1000))
+}
+
+func toWattHours(kwh float64) int64 {
+	return int64(math.Round(kwh * 1000))
+}
+
+func (s *Storage) plugFor(id string) *plugMem {
+	p := s.plugs[id]
+	if p == nil {
+		p = &plugMem{}
+		s.plugs[id] = p
+	}
+	return p
+}
+
+// RecordReading adds a reading to the bucket, the daily totals and the live state of its plug. Nothing is written
+// to the database until the next flush.
+func (s *Storage) RecordReading(r models.EnergyReading) {
+	ts := r.Timestamp.Unix()
+	mw := toMilliwatts(r.PowerWatts)
+	start := ts - ts%bucketSec
+	day := r.Timestamp.In(time.Local).Format(dayLayout)
+	wh := toWattHours(r.EnergyTodayKWh)
+	mwh := toWattHours(r.EnergyMonthKWh)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	p := s.plugFor(r.PlugID)
+	if p.hasOpen && p.openStart != start {
+		s.closed = append(s.closed, closedBucket{plug: r.PlugID, start: p.openStart, agg: p.open})
+		p.hasOpen = false
+	}
+	if !p.hasOpen {
+		p.hasOpen, p.openStart, p.open = true, start, bucketAgg{}
+	}
+	p.open.add(mw)
+
+	if !p.sampled || ts >= p.sampledAt {
+		p.sampled, p.sampledAt, p.powerMW, p.energyToday, p.energyMonth = true, ts, mw, wh, mwh
+	}
+	p.dirty = true
+
+	k := dayKey{plug: r.PlugID, day: day}
+	d := s.days[k]
+	if d == nil {
+		d = &dayDelta{}
+		s.days[k] = d
+	}
+	if mw > d.peakMW {
+		d.peakMW = mw
+	}
+	d.sumMW += mw
+	d.n++
+	if ts >= d.lastTS {
+		d.lastTS, d.energyToday, d.energyMonth = ts, wh, mwh
 	}
 }
 
-// Flush writes all pending buffered readings to SQLite in a single transaction.
+// RecordPlugState stores the relay state a poll reported. It is written with the next flush.
+func (s *Storage) RecordPlugState(id string, on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.plugFor(id)
+	p.isOn = &on
+	p.dirty = true
+}
+
+// SetPlugOn stores the relay state immediately, so a change made from the dashboard is visible at once.
+func (s *Storage) SetPlugOn(ctx context.Context, id string, on bool) error {
+	s.RecordPlugState(id, on)
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO plug_state (plug_id, is_on) VALUES (?, ?)
+		ON CONFLICT (plug_id) DO UPDATE SET is_on = excluded.is_on
+	`, id, on)
+	return err
+}
+
+// stateWrite is a copy of the in-memory state of one plug, taken under the lock.
+type stateWrite struct {
+	plug        string
+	isOn        *bool
+	sampled     bool
+	sampledAt   int64
+	powerMW     int64
+	energyToday int64
+	energyMonth int64
+	hasOpen     bool
+	openStart   int64
+	open        bucketAgg
+}
+
+// Flush writes the state of every plug, the closed buckets and the daily totals in one transaction.
 func (s *Storage) Flush() error {
-	s.bufferMu.Lock()
-	if len(s.buffer) == 0 {
-		s.bufferMu.Unlock()
+	s.mu.Lock()
+	var states []stateWrite
+	for id, p := range s.plugs {
+		if !p.dirty {
+			continue
+		}
+		p.dirty = false
+		states = append(states, stateWrite{
+			plug: id, isOn: p.isOn, sampled: p.sampled, sampledAt: p.sampledAt,
+			powerMW: p.powerMW, energyToday: p.energyToday, energyMonth: p.energyMonth,
+			hasOpen: p.hasOpen, openStart: p.openStart, open: p.open,
+		})
+	}
+	closed := s.closed
+	s.closed = nil
+	days := s.days
+	s.days = make(map[dayKey]*dayDelta)
+	s.mu.Unlock()
+
+	if len(states) == 0 && len(closed) == 0 && len(days) == 0 {
 		return nil
 	}
-	toWrite := s.buffer
-	s.buffer = make([]models.EnergyReading, 0, s.maxBufferSize)
-	s.bufferMu.Unlock()
+	if err := s.writeFlush(states, closed, days); err != nil {
+		// Keep what did not reach the database for the next flush.
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.closed = append(closed, s.closed...)
+		for k, o := range days {
+			if cur := s.days[k]; cur != nil {
+				cur.absorb(o)
+			} else {
+				s.days[k] = o
+			}
+		}
+		for _, st := range states {
+			s.plugFor(st.plug).dirty = true
+		}
+		return err
+	}
+	return nil
+}
 
+func (s *Storage) writeFlush(states []stateWrite, closed []closedBucket, days map[dayKey]*dayDelta) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin flush transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(`
-		INSERT INTO energy_readings (plug_id, timestamp, power_watts, voltage_v, current_ma, energy_today_kwh, energy_month_kwh)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+	sampleStmt, err := tx.Prepare(`
+		INSERT INTO plug_state (plug_id, sampled_at, power_mw, energy_today_wh, energy_month_wh, open_bucket, open_sum_mw, open_max_mw, open_n)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (plug_id) DO UPDATE SET
+			sampled_at = excluded.sampled_at,
+			power_mw = excluded.power_mw,
+			energy_today_wh = excluded.energy_today_wh,
+			energy_month_wh = excluded.energy_month_wh,
+			open_bucket = excluded.open_bucket,
+			open_sum_mw = excluded.open_sum_mw,
+			open_max_mw = excluded.open_max_mw,
+			open_n = excluded.open_n
 	`)
 	if err != nil {
-		return fmt.Errorf("failed to prepare insert statement: %w", err)
+		return fmt.Errorf("failed to prepare state statement: %w", err)
 	}
-	defer stmt.Close()
+	defer sampleStmt.Close()
 
-	for _, r := range toWrite {
-		_, err := stmt.Exec(
-			r.PlugID,
-			r.Timestamp.UTC(),
-			r.PowerWatts,
-			r.VoltageV,
-			r.CurrentMA,
-			r.EnergyTodayKWh,
-			r.EnergyMonthKWh,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to execute batch insert: %w", err)
+	onStmt, err := tx.Prepare(`
+		INSERT INTO plug_state (plug_id, is_on) VALUES (?, ?)
+		ON CONFLICT (plug_id) DO UPDATE SET is_on = excluded.is_on
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare relay statement: %w", err)
+	}
+	defer onStmt.Close()
+
+	for _, st := range states {
+		if st.sampled {
+			var openBucket any
+			var openSum, openMax, openN int64
+			if st.hasOpen {
+				openBucket, openSum, openMax, openN = st.openStart, st.open.sumMW, st.open.maxMW, st.open.n
+			}
+			if _, err := sampleStmt.Exec(st.plug, st.sampledAt, st.powerMW, st.energyToday, st.energyMonth, openBucket, openSum, openMax, openN); err != nil {
+				return fmt.Errorf("failed to write plug state: %w", err)
+			}
+		}
+		if st.isOn != nil {
+			if _, err := onStmt.Exec(st.plug, *st.isOn); err != nil {
+				return fmt.Errorf("failed to write relay state: %w", err)
+			}
+		}
+	}
+
+	for _, c := range closed {
+		if _, err := tx.Exec(`
+			INSERT INTO samples_5m (plug_id, bucket, sum_mw, max_mw, n) VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT (plug_id, bucket) DO UPDATE SET
+				sum_mw = sum_mw + excluded.sum_mw,
+				max_mw = max(max_mw, excluded.max_mw),
+				n = n + excluded.n
+		`, c.plug, c.start, c.agg.sumMW, c.agg.maxMW, c.agg.n); err != nil {
+			return fmt.Errorf("failed to write bucket: %w", err)
+		}
+	}
+
+	for k, d := range days {
+		if _, err := tx.Exec(`
+			INSERT INTO daily (plug_id, day, energy_today_wh, energy_month_wh, peak_mw, sum_mw, n) VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (plug_id, day) DO UPDATE SET
+				energy_today_wh = excluded.energy_today_wh,
+				energy_month_wh = excluded.energy_month_wh,
+				peak_mw = max(peak_mw, excluded.peak_mw),
+				sum_mw = sum_mw + excluded.sum_mw,
+				n = n + excluded.n
+		`, k.plug, k.day, d.energyToday, d.energyMonth, d.peakMW, d.sumMW, d.n); err != nil {
+			return fmt.Errorf("failed to write daily totals: %w", err)
 		}
 	}
 
@@ -192,9 +504,8 @@ func (s *Storage) flushLoop() {
 	}
 }
 
-// StartRetention deletes readings older than retention once at startup and then
-// once a day, until Close is called. Freed pages are reused by SQLite; the file
-// is not shrunk.
+// StartRetention deletes data older than retention once at startup and then once a day, until Close is called.
+// Freed pages are reused by SQLite; the file is not shrunk.
 func (s *Storage) StartRetention(retention time.Duration) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.retentionCancel = cancel
@@ -208,11 +519,11 @@ func (s *Storage) retentionLoop(ctx context.Context, retention time.Duration) {
 	defer close(s.retentionDone)
 
 	for {
-		deleted, err := s.PurgeReadingsBefore(ctx, time.Now().Add(-retention))
+		deleted, err := s.PurgeBefore(ctx, time.Now().Add(-retention))
 		if err != nil && ctx.Err() == nil {
-			log.Printf("[Storage] Retention purge failed after deleting %d readings: %v", deleted, err)
+			log.Printf("[Storage] Retention purge failed after deleting %d rows: %v", deleted, err)
 		} else if deleted > 0 {
-			log.Printf("[Storage] Retention purge deleted %d readings older than %s", deleted, retention)
+			log.Printf("[Storage] Retention purge deleted %d rows older than %s", deleted, retention)
 		}
 
 		select {
@@ -223,35 +534,52 @@ func (s *Storage) retentionLoop(ctx context.Context, retention time.Duration) {
 	}
 }
 
-// PurgeReadingsBefore deletes energy readings with a timestamp before cutoff, in
-// batches so that a large backlog does not hold the write lock for long. It stops
-// early when ctx is cancelled and returns the number of rows deleted so far.
-func (s *Storage) PurgeReadingsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+// PurgeBefore deletes buckets and daily totals before cutoff. Each plug is handled with its primary key, so no
+// extra index is needed. It stops early when ctx is cancelled and returns the number of rows deleted so far.
+func (s *Storage) PurgeBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM plugs`)
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	bucketCutoff := cutoff.Unix()
+	dayCutoff := cutoff.In(time.Local).Format(dayLayout)
 	var total int64
-	for {
-		res, err := s.db.ExecContext(ctx, `
-			DELETE FROM energy_readings WHERE id IN (
-				SELECT id FROM energy_readings WHERE timestamp < ? ORDER BY timestamp LIMIT ?
-			)
-		`, cutoff.UTC(), retentionBatchSize)
-		if err != nil {
-			return total, err
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			return total, err
-		}
-		total += n
-		if n < retentionBatchSize {
-			return total, nil
-		}
+	for _, id := range ids {
 		if err := ctx.Err(); err != nil {
 			return total, err
 		}
+		res, err := s.db.ExecContext(ctx, `DELETE FROM samples_5m WHERE plug_id = ? AND bucket < ?`, id, bucketCutoff)
+		if err != nil {
+			return total, err
+		}
+		n, _ := res.RowsAffected()
+		total += n
+
+		res, err = s.db.ExecContext(ctx, `DELETE FROM daily WHERE plug_id = ? AND day < ?`, id, dayCutoff)
+		if err != nil {
+			return total, err
+		}
+		n, _ = res.RowsAffected()
+		total += n
 	}
+	return total, nil
 }
 
-// UpsertPlug inserts or updates plug metadata.
+// UpsertPlug inserts or updates plug metadata. A plug that is configured is shown again.
 func (s *Storage) UpsertPlug(ctx context.Context, p models.Plug) error {
 	if p.Category == "" {
 		p.Category = "General"
@@ -281,11 +609,25 @@ func (s *Storage) UpsertPlug(ctx context.Context, p models.Plug) error {
 	return err
 }
 
-// UpdatePlugState updates the on/off state of a plug.
-func (s *Storage) UpdatePlugState(ctx context.Context, id string, isOn bool) error {
-	query := `UPDATE plugs SET is_on = ?, updated_at = ? WHERE id = ?`
-	_, err := s.db.ExecContext(ctx, query, isOn, time.Now().UTC(), id)
+// HidePlugsExcept hides every plug whose ID is not in ids. Their data is kept.
+func (s *Storage) HidePlugsExcept(ctx context.Context, ids []string) error {
+	query := `UPDATE plugs SET is_active = 0 WHERE id NOT IN (` + placeholders(len(ids)) + `)`
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	if len(ids) == 0 {
+		query = `UPDATE plugs SET is_active = 0`
+	}
+	_, err := s.db.ExecContext(ctx, query, args...)
 	return err
+}
+
+func placeholders(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
 }
 
 // PlugMACs returns the MAC addresses learned from plugs, keyed by plug ID. Plugs without one are left out.
@@ -332,134 +674,266 @@ func (s *Storage) UpdatePlugIP(ctx context.Context, id, ip string) error {
 	return err
 }
 
-// GetPlugs returns all configured plugs enriched with latest reading and homeowner analytics.
-func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64, standbyPeriod models.StandbyPeriod) ([]models.PlugWithLatest, error) {
-	query := `
-		SELECT 
-			p.id, p.name, p.model, p.category, p.driver_type, p.ip, p.mac, p.is_active, p.is_on, p.created_at, p.updated_at,
-			r.id, r.timestamp, r.power_watts, r.voltage_v, r.current_ma, r.energy_today_kwh, r.energy_month_kwh
+// plugRow is a visible plug with its stored live state.
+type plugRow struct {
+	models.Plug
+	isOn        bool
+	sampled     bool
+	sampledAt   int64
+	powerMW     int64
+	energyToday int64
+	energyMonth int64
+}
+
+// plugRows returns the visible plugs, by name, with their live state.
+func (s *Storage) plugRows(ctx context.Context) ([]plugRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT p.id, p.name, p.model, p.category, p.driver_type, p.ip, p.mac, p.is_active, p.created_at, p.updated_at,
+			COALESCE(st.is_on, 1), st.sampled_at, COALESCE(st.power_mw, 0), COALESCE(st.energy_today_wh, 0), COALESCE(st.energy_month_wh, 0)
 		FROM plugs p
-		LEFT JOIN energy_readings r ON r.id = (
-			SELECT id FROM energy_readings 
-			WHERE plug_id = p.id 
-			ORDER BY timestamp DESC 
-			LIMIT 1
-		)
+		LEFT JOIN plug_state st ON st.plug_id = p.id
+		WHERE p.is_active = 1
 		ORDER BY p.name ASC
-	`
-	rows, err := s.db.QueryContext(ctx, query)
+	`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var result []models.PlugWithLatest
-	midnightToday := startOfLocalDay(time.Now())
-	now := time.Now()
-	standbySince := startOfLocalDay(now).AddDate(0, 0, -(max(standbyPeriod.Nights, 1) - 1))
-
+	var out []plugRow
 	for rows.Next() {
-		var p models.PlugWithLatest
-		var mac, category sql.NullString
-		var rID sql.NullInt64
-		var rTimestamp sql.NullTime
-		var rPower, rVoltage, rCurrent, rToday, rMonth sql.NullFloat64
-
-		err := rows.Scan(
-			&p.ID, &p.Name, &p.Model, &category, &p.DriverType, &p.IP, &mac,
-			&p.IsActive, &p.IsOn, &p.CreatedAt, &p.UpdatedAt,
-			&rID, &rTimestamp, &rPower, &rVoltage, &rCurrent, &rToday, &rMonth,
-		)
-		if err != nil {
+		var r plugRow
+		var category, mac sql.NullString
+		var sampledAt sql.NullInt64
+		var isOn, active int64
+		if err := rows.Scan(
+			&r.ID, &r.Name, &r.Model, &category, &r.DriverType, &r.IP, &mac, &active, &r.CreatedAt, &r.UpdatedAt,
+			&isOn, &sampledAt, &r.powerMW, &r.energyToday, &r.energyMonth,
+		); err != nil {
 			return nil, err
 		}
-		p.MAC = mac.String
-		p.Category = category.String
-		if p.Category == "" {
-			p.Category = "General"
+		r.IsActive = active == 1
+		r.IsOn = isOn == 1
+		r.isOn = isOn == 1
+		r.MAC = mac.String
+		r.Category = category.String
+		if r.Category == "" {
+			r.Category = "General"
 		}
+		if sampledAt.Valid {
+			r.sampled = true
+			r.sampledAt = sampledAt.Int64
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
 
-		if rID.Valid {
+// bucketAggs returns the buckets of one plug that start in [from, to), including the bucket still filling.
+func (s *Storage) bucketAggs(ctx context.Context, plugID string, from, to int64) (map[int64]bucketAgg, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT bucket, sum_mw, max_mw, n FROM samples_5m
+		WHERE plug_id = ? AND bucket >= ? AND bucket < ?
+	`, plugID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[int64]bucketAgg)
+	for rows.Next() {
+		var b int64
+		var a bucketAgg
+		if err := rows.Scan(&b, &a.sumMW, &a.maxMW, &a.n); err != nil {
+			return nil, err
+		}
+		cur := out[b]
+		cur.merge(a)
+		out[b] = cur
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var openBucket sql.NullInt64
+	var open bucketAgg
+	err = s.db.QueryRowContext(ctx, `
+		SELECT open_bucket, open_sum_mw, open_max_mw, open_n FROM plug_state WHERE plug_id = ?
+	`, plugID).Scan(&openBucket, &open.sumMW, &open.maxMW, &open.n)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	if openBucket.Valid && open.n > 0 && openBucket.Int64 >= from && openBucket.Int64 < to {
+		cur := out[openBucket.Int64]
+		cur.merge(open)
+		out[openBucket.Int64] = cur
+	}
+	return out, nil
+}
+
+// dailyRow is the stored totals of one plug for one local day.
+type dailyRow struct {
+	day         string
+	energyToday int64
+	energyMonth int64
+	peakMW      int64
+	sumMW       int64
+	n           int64
+}
+
+// dailyRange returns the daily rows of one plug for the days from `from` up to but not including `to`, both as
+// local dates (YYYY-MM-DD), oldest first.
+func (s *Storage) dailyRange(ctx context.Context, plugID, from, to string) ([]dailyRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT day, energy_today_wh, energy_month_wh, peak_mw, sum_mw, n FROM daily
+		WHERE plug_id = ? AND day >= ? AND day < ?
+		ORDER BY day
+	`, plugID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []dailyRow
+	for rows.Next() {
+		var d dailyRow
+		if err := rows.Scan(&d.day, &d.energyToday, &d.energyMonth, &d.peakMW, &d.sumMW, &d.n); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// window is one standby window: the bucket starts in [start, end) belong to it. Times are Unix seconds.
+type window struct {
+	start, end int64
+}
+
+// standbyWindows returns the most recent `Nights` standby windows that have ended by now, oldest first. The
+// reference is the most recent window that has completed: after the window ends, that is today's window; during
+// the window or before it starts, it is yesterday's.
+func standbyWindows(now time.Time, period models.StandbyPeriod) []window {
+	wrap := period.EndMinute <= period.StartMinute
+	nights := max(period.Nights, 1)
+	day0 := startOfLocalDay(now)
+
+	var out []window
+	for k := 0; len(out) < nights && k < nights+3; k++ {
+		day := day0.AddDate(0, 0, -k)
+		endDay := day
+		if wrap {
+			endDay = day.AddDate(0, 0, 1)
+		}
+		w := window{
+			start: atMinute(day, period.StartMinute).Unix(),
+			end:   atMinute(endDay, period.EndMinute).Unix(),
+		}
+		if w.end > now.Unix() {
+			continue
+		}
+		out = append(out, w)
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
+}
+
+func atMinute(day time.Time, minute int) time.Time {
+	return time.Date(day.Year(), day.Month(), day.Day(), minute/60, minute%60, 0, 0, time.Local)
+}
+
+// standbyTotal adds the buckets that fall inside one of the windows. wins must be sorted and not overlap.
+func standbyTotal(aggs map[int64]bucketAgg, wins []window) bucketAgg {
+	var total bucketAgg
+	for b, a := range aggs {
+		i := sort.Search(len(wins), func(i int) bool { return wins[i].end > b })
+		if i < len(wins) && wins[i].start <= b {
+			total.merge(a)
+		}
+	}
+	return total
+}
+
+func avgWatts(sumMW, n int64) float64 {
+	if n == 0 {
+		return 0
+	}
+	return round(float64(sumMW)/float64(n)/1000, 10)
+}
+
+func round(v float64, factor float64) float64 {
+	return math.Round(v*factor) / factor
+}
+
+// GetPlugs returns all visible plugs enriched with their latest reading and analytics.
+func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64, standbyPeriod models.StandbyPeriod) ([]models.PlugWithLatest, error) {
+	rows, err := s.plugRows(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	todayStart := startOfLocalDay(now)
+	todayKey := todayStart.Format(dayLayout)
+	tomorrowKey := todayStart.AddDate(0, 0, 1).Format(dayLayout)
+	wins := standbyWindows(now, standbyPeriod)
+
+	result := make([]models.PlugWithLatest, 0, len(rows))
+	for _, row := range rows {
+		p := models.PlugWithLatest{Plug: row.Plug}
+		p.IsOn = row.isOn
+
+		if row.sampled {
+			watts := float64(row.powerMW) / 1000
 			p.LatestReading = &models.EnergyReading{
-				ID:             rID.Int64,
-				PlugID:         p.ID,
-				Timestamp:      rTimestamp.Time,
-				PowerWatts:     rPower.Float64,
-				VoltageV:       rVoltage.Float64,
-				CurrentMA:      rCurrent.Float64,
-				EnergyTodayKWh: rToday.Float64,
-				EnergyMonthKWh: rMonth.Float64,
+				PlugID:         row.ID,
+				Timestamp:      time.Unix(row.sampledAt, 0).UTC(),
+				PowerWatts:     watts,
+				VoltageV:       230,
+				CurrentMA:      watts / 230 * 1000,
+				EnergyTodayKWh: float64(row.energyToday) / 1000,
+				EnergyMonthKWh: float64(row.energyMonth) / 1000,
 			}
 		}
 
-		// Calculate Homeowner Analytics for this plug:
-		// 1. Peak power recorded today (Max W)
-		var peakToday, avgToday sql.NullFloat64
-		_ = s.db.QueryRowContext(ctx, `
-			SELECT MAX(power_watts), AVG(power_watts)
-			FROM energy_readings
-			WHERE plug_id = ? AND timestamp >= ?
-		`, p.ID, midnightToday.UTC()).Scan(&peakToday, &avgToday)
-
-		if peakToday.Valid {
-			p.PeakWattsToday = math.Round(peakToday.Float64*10) / 10
+		daily, err := s.dailyRange(ctx, row.ID, todayKey, tomorrowKey)
+		if err != nil {
+			return nil, err
+		}
+		if len(daily) > 0 {
+			d := daily[0]
+			p.PeakWattsToday = round(float64(d.peakMW)/1000, 10)
+			p.AvgWattsToday = avgWatts(d.sumMW, d.n)
 		} else if p.LatestReading != nil {
 			p.PeakWattsToday = p.LatestReading.PowerWatts
 		}
 
-		if avgToday.Valid {
-			p.AvgWattsToday = math.Round(avgToday.Float64*10) / 10
+		if len(wins) > 0 {
+			aggs, err := s.bucketAggs(ctx, row.ID, wins[0].start, wins[len(wins)-1].end)
+			if err != nil {
+				return nil, err
+			}
+			st := standbyTotal(aggs, wins)
+			p.HasStandbyData = st.n > 0
+			if p.HasStandbyData {
+				p.StandbyWatts = avgWatts(st.sumMW, st.n)
+			}
 		}
-
-		// 2. Standby/Vampire Load: average power inside the standby window over the selected nights.
-		// Without readings in that window there is no baseline, so none is reported.
-		var windowSamples int
-		var standbyAvg sql.NullFloat64
-		windowSQL, windowArgs := standbyWindowSQL(standbyPeriod)
-		_ = s.db.QueryRowContext(ctx, `
-			SELECT COUNT(*), AVG(power_watts)
-			FROM energy_readings
-			WHERE plug_id = ? AND timestamp >= ? AND `+windowSQL,
-			append([]any{p.ID, standbySince.UTC()}, windowArgs...)...,
-		).Scan(&windowSamples, &standbyAvg)
-
-		p.HasStandbyData = windowSamples > 0
-		if p.HasStandbyData && standbyAvg.Valid {
-			p.StandbyWatts = math.Round(standbyAvg.Float64*10) / 10
-		}
-
-		// Annualized standby cost: StandbyWatts * 24 * 365.25 / 1000 * costPerKWh
 		p.AnnualStandbyCost = math.Round((p.StandbyWatts*24.0*365.25/1000.0*costPerKWh)*100) / 100
 
-		// 3. Estimated Monthly Cost: based on month energy so far, or extrapolated
 		if p.LatestReading != nil {
 			p.EstimatedMonthCost = math.Round((p.LatestReading.EnergyMonthKWh*costPerKWh)*100) / 100
-		}
-
-		// 4. Runtime today: approximate hours with power > 3.0 W
-		var activeCount, totalCount int
-		_ = s.db.QueryRowContext(ctx, `
-			SELECT 
-				COUNT(CASE WHEN power_watts > 3.0 THEN 1 END),
-				COUNT(*)
-			FROM energy_readings
-			WHERE plug_id = ? AND timestamp >= ?
-		`, p.ID, midnightToday.UTC()).Scan(&activeCount, &totalCount)
-
-		if totalCount > 0 {
-			hoursSinceMidnight := time.Since(midnightToday).Hours()
-			if hoursSinceMidnight > 0 {
-				p.RuntimeTodayHours = math.Round((float64(activeCount)/float64(totalCount)*hoursSinceMidnight)*10) / 10
-			}
 		}
 
 		result = append(result, p)
 	}
 
-	return result, rows.Err()
+	return result, nil
 }
 
-// GetPlug returns a single plug with its latest telemetry and analytics.
+// GetPlug returns a single plug with its latest telemetry and analytics, or nil if it does not exist.
 func (s *Storage) GetPlug(ctx context.Context, id string, costPerKWh float64, standbyPeriod models.StandbyPeriod) (*models.PlugWithLatest, error) {
 	plugs, err := s.GetPlugs(ctx, costPerKWh, standbyPeriod)
 	if err != nil {
@@ -473,56 +947,22 @@ func (s *Storage) GetPlug(ctx context.Context, id string, costPerKWh float64, st
 	return nil, nil
 }
 
-// GetLatestReading fetches the most recent reading for a given plug.
-func (s *Storage) GetLatestReading(ctx context.Context, plugID string) (*models.EnergyReading, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT id, plug_id, timestamp, power_watts, voltage_v, current_ma, energy_today_kwh, energy_month_kwh
-		FROM energy_readings
-		WHERE plug_id = ?
-		ORDER BY timestamp DESC
-		LIMIT 1
-	`, plugID)
-
-	var r models.EnergyReading
-	err := row.Scan(
-		&r.ID, &r.PlugID, &r.Timestamp, &r.PowerWatts, &r.VoltageV, &r.CurrentMA,
-		&r.EnergyTodayKWh, &r.EnergyMonthKWh,
-	)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &r, nil
-}
-
 // GetHistory returns the average power of a plug for each bucket from start up to end.
 // Buckets are counted from start, so start should be aligned to the bucket size.
 // A bucket without readings has a nil PowerWatts, so the chart shows a gap.
 func (s *Storage) GetHistory(ctx context.Context, plugID string, start, end time.Time, bucket time.Duration) ([]models.HistoryPoint, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT CAST((CAST(strftime('%s', substr(timestamp, 1, 19)) AS INTEGER) - ?) / ? AS INTEGER) AS slot, AVG(power_watts)
-		FROM energy_readings
-		WHERE plug_id = ? AND timestamp >= ? AND timestamp < ?
-		GROUP BY slot
-	`, start.Unix(), int64(bucket/time.Second), plugID, start.UTC(), end.UTC())
+	aggs, err := s.bucketAggs(ctx, plugID, start.Unix(), end.Unix())
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	averages := make(map[int64]float64)
-	for rows.Next() {
-		var slot int64
-		var avg float64
-		if err := rows.Scan(&slot, &avg); err != nil {
-			return nil, err
-		}
-		averages[slot] = avg
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	bucketSecs := int64(bucket / time.Second)
+	slots := make(map[int64]bucketAgg)
+	for b, a := range aggs {
+		slot := (b - start.Unix()) / bucketSecs
+		cur := slots[slot]
+		cur.merge(a)
+		slots[slot] = cur
 	}
 
 	var points []models.HistoryPoint
@@ -532,8 +972,9 @@ func (s *Storage) GetHistory(ctx context.Context, plugID string, start, end time
 			break
 		}
 		pt := models.HistoryPoint{Timestamp: ts}
-		if avg, ok := averages[i]; ok {
-			pt.PowerWatts = &avg
+		if a, ok := slots[i]; ok && a.n > 0 {
+			w := avgWatts(a.sumMW, a.n)
+			pt.PowerWatts = &w
 		}
 		points = append(points, pt)
 	}
@@ -559,8 +1000,8 @@ func (s *Storage) GetSummary(ctx context.Context, currency string, costPerKWh fl
 		if p.IsActive {
 			summary.ActivePlugsCount++
 		}
-		if p.LatestReading != nil && p.IsOn {
-			if models.Online(p.LatestReading, now, offlineAfter) {
+		if p.LatestReading != nil {
+			if p.IsOn && models.Online(p.LatestReading, now, offlineAfter) {
 				summary.TotalPowerWatts += p.LatestReading.PowerWatts
 			}
 			summary.TotalEnergyToday += p.LatestReading.EnergyTodayKWh
@@ -597,19 +1038,10 @@ func valuePtr(v float64) *float64 {
 	return &v
 }
 
-// standbyWindowSQL returns a condition matching readings taken inside the standby window (local time).
-func standbyWindowSQL(period models.StandbyPeriod) (string, []any) {
-	minuteOfDay := "(CAST(strftime('%H', substr(timestamp, 1, 19), 'localtime') AS INTEGER) * 60 + CAST(strftime('%M', substr(timestamp, 1, 19), 'localtime') AS INTEGER))"
-	if period.StartMinute < period.EndMinute {
-		return minuteOfDay + " >= ? AND " + minuteOfDay + " < ?", []any{period.StartMinute, period.EndMinute}
-	}
-	return "(" + minuteOfDay + " >= ? OR " + minuteOfDay + " < ?)", []any{period.StartMinute, period.EndMinute}
-}
-
-// GetBreakdown returns stacked time-series data grouped by plug or category for charts.
+// GetBreakdown returns stacked time-series data per plug for charts.
 // start selects the local day (rangeType "today") or month (rangeType "month") to show.
-func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, start time.Time, costPerKWh float64, standbyPeriod models.StandbyPeriod) (*models.BreakdownResponse, error) {
-	plugs, err := s.GetPlugs(ctx, costPerKWh, standbyPeriod)
+func (s *Storage) GetBreakdown(ctx context.Context, rangeType string, start time.Time) (*models.BreakdownResponse, error) {
+	plugs, err := s.plugRows(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -648,38 +1080,21 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, st
 				Color: colors[idx%len(colors)],
 				Data:  make([]*float64, daysInMonth),
 			}
-
-			// Query daily consumption for this plug
-			rows, qErr := s.db.QueryContext(ctx, `
-				SELECT strftime('%d', substr(timestamp, 1, 19), 'localtime') as day_str, MAX(energy_today_kwh)
-				FROM energy_readings
-				WHERE plug_id = ? AND timestamp >= ? AND timestamp < ?
-				GROUP BY day_str
-			`, p.ID, monthStart.UTC(), monthEnd.UTC())
-
-			if qErr == nil {
-				for rows.Next() {
-					var dayStr string
-					var val float64
-					if err := rows.Scan(&dayStr, &val); err == nil {
-						var dayNum int
-						fmt.Sscanf(dayStr, "%d", &dayNum)
-						if dayNum >= 1 && dayNum <= daysInMonth {
-							series.Data[dayNum-1] = valuePtr(math.Round(val*100) / 100)
-						}
-					}
+			days, err := s.dailyRange(ctx, p.ID, monthStart.Format(dayLayout), monthEnd.Format(dayLayout))
+			if err != nil {
+				return nil, err
+			}
+			for _, d := range days {
+				t, err := time.ParseInLocation(dayLayout, d.day, time.Local)
+				if err != nil {
+					continue
 				}
-				rows.Close()
+				if n := t.Day(); n >= 1 && n <= daysInMonth {
+					series.Data[n-1] = valuePtr(round(float64(d.energyToday)/1000, 100))
+				}
 			}
-
-			// If data is sparse in dev, fill current day with today's kWh
-			if isCurrentMonth && p.LatestReading != nil && series.Data[daysInMonth-1] == nil {
-				series.Data[daysInMonth-1] = valuePtr(math.Round(p.LatestReading.EnergyTodayKWh*100) / 100)
-			}
-
 			resp.Series = append(resp.Series, series)
 		}
-
 	} else {
 		// Hourly view for the selected day (00:00 to 23:00 local time)
 		for h := 0; h < 24; h++ {
@@ -688,8 +1103,6 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, st
 
 		dayStart := startOfLocalDay(start)
 		dayEnd := dayStart.AddDate(0, 0, 1)
-		now := time.Now()
-		isToday := !now.Before(dayStart) && now.Before(dayEnd)
 
 		for idx, p := range plugs {
 			series := models.BreakdownSeries{
@@ -698,36 +1111,22 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, st
 				Color: colors[idx%len(colors)],
 				Data:  make([]*float64, 24),
 			}
-
-			// Query average watts per hour slot today
-			rows, qErr := s.db.QueryContext(ctx, `
-				SELECT strftime('%H', substr(timestamp, 1, 19), 'localtime') as hour_str, AVG(power_watts)
-				FROM energy_readings
-				WHERE plug_id = ? AND timestamp >= ? AND timestamp < ?
-				GROUP BY hour_str
-			`, p.ID, dayStart.UTC(), dayEnd.UTC())
-
-			if qErr == nil {
-				for rows.Next() {
-					var hourStr string
-					var avgWatts float64
-					if err := rows.Scan(&hourStr, &avgWatts); err == nil {
-						var hNum int
-						fmt.Sscanf(hourStr, "%d", &hNum)
-						if hNum >= 0 && hNum < 24 {
-							series.Data[hNum] = valuePtr(math.Round(avgWatts*10) / 10)
-						}
-					}
+			aggs, err := s.bucketAggs(ctx, p.ID, dayStart.Unix(), dayEnd.Unix())
+			if err != nil {
+				return nil, err
+			}
+			hourly := make(map[int]bucketAgg)
+			for b, a := range aggs {
+				h := time.Unix(b, 0).In(time.Local).Hour()
+				cur := hourly[h]
+				cur.merge(a)
+				hourly[h] = cur
+			}
+			for h, a := range hourly {
+				if a.n > 0 && h >= 0 && h < 24 {
+					series.Data[h] = valuePtr(avgWatts(a.sumMW, a.n))
 				}
-				rows.Close()
 			}
-
-			// If the current hour has no samples yet, show the latest reading for today
-			currentHour := now.Hour()
-			if isToday && p.LatestReading != nil && series.Data[currentHour] == nil {
-				series.Data[currentHour] = valuePtr(math.Round(p.LatestReading.PowerWatts*10) / 10)
-			}
-
 			resp.Series = append(resp.Series, series)
 		}
 	}
@@ -735,12 +1134,24 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, st
 	return resp, nil
 }
 
-// Close gracefully flushes the in-memory write buffer and closes the SQLite database.
+// Close flushes the open buckets and closes the SQLite database.
 func (s *Storage) Close() error {
 	if s.retentionCancel != nil {
 		s.retentionCancel()
 		<-s.retentionDone
 	}
+
+	s.mu.Lock()
+	for id, p := range s.plugs {
+		if p.hasOpen {
+			s.closed = append(s.closed, closedBucket{plug: id, start: p.openStart, agg: p.open})
+			p.hasOpen = false
+			p.open = bucketAgg{}
+			p.dirty = true
+		}
+	}
+	s.mu.Unlock()
+
 	close(s.stopFlush)
 	<-s.flushDone
 	return s.db.Close()

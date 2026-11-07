@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // SSEBroker manages connected Server-Sent Events clients.
@@ -60,6 +61,8 @@ func (b *SSEBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	// The server's write timeout would end the stream after 30 seconds. Streams stay open until the client leaves.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 
 	clientChan := make(chan string, 16)
 

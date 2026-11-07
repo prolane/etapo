@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-11-08
+
+### Changed
+- Readings are summed into 5-minute buckets per plug, and daily totals are kept per plug. Raw 10-second readings are no longer stored. This cuts the database growth and the SD card writes by a large factor. On the first start, the old database is copied to a `-before-rollups-` backup next to it, and the raw readings are removed.
+- The dashboard refreshes its summary at most every 10 seconds instead of on every reading.
+- `storage.max_buffer_size` is ignored. The setting is still accepted.
+- Standby averages use the most recent standby window that has ended: today's window once it has ended, and yesterday's before that.
+- The history range `1h` returns 5-minute buckets.
+- An unknown history range returns 400. A missing range means 24h.
+- The breakdown accepts only `by=plug`. Other values return 400.
+- `POST /api/plugs/{id}/power` requires the `on` field.
+- Plugs removed from `config.yaml` are hidden from lists and totals. Their data is kept.
+
+### Removed
+- The runtime today figure and its dashboard card. It was an estimate from readings above 3 W.
+- The breakdown `nights` parameter, which had no effect.
+
+### Fixed
+- The live event stream stays open instead of ending after 30 seconds.
+- Energy used before a plug was switched off is counted in the totals.
+- `POST /api/plugs/{id}/power` for an unknown plug returns 404 instead of 500.
+
 ## [1.9.0] - 2026-11-07
 
 ### Fixed

@@ -29,7 +29,7 @@ Etapo is an ultra-lightweight, self-hosted energy monitoring daemon and web dash
 │ Collector Component (`internal/collector`)                                      │
 │  - Plug Driver Interface: KlapDriver (hardware) vs MockDriver (development)     │
 │  - Periodic poller running on configurable intervals                            │
-│  - In-memory write buffer to batch metrics before flushing                      │
+│  - Sums readings into 5-minute buckets in memory, flushed every interval        │
 └─────────────────────────────────┬───────────────────────────────────────────────┘
                                   │ Batched writes
                                   ▼
@@ -37,7 +37,7 @@ Etapo is an ultra-lightweight, self-hosted energy monitoring daemon and web dash
 │ Storage Component (`internal/storage`)                                          │
 │  - Pure Go SQLite (modernc.org/sqlite - no CGO required)                        │
 │  - WAL mode (Write-Ahead Logging) + PRAGMA synchronous = NORMAL                 │
-│  - Schema: Plugs, EnergyReadings, DailyAggregates                              │
+│  - Schema: plugs, plug_state, samples_5m, daily (see ADR-011)                  │
 └─────────────────────────────────┬───────────────────────────────────────────────┘
                                   │ Queries
                                   ▼

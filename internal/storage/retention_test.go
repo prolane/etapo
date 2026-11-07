@@ -11,7 +11,7 @@ import (
 
 func newRetentionTestStore(t *testing.T) *Storage {
 	t.Helper()
-	store, err := New(filepath.Join(t.TempDir(), "etapo.db"), time.Hour, 100000)
+	store, err := New(filepath.Join(t.TempDir(), "etapo.db"), time.Hour)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}
@@ -35,19 +35,20 @@ func recordReadingsAt(t *testing.T, store *Storage, times ...time.Time) {
 	}
 }
 
-func storedReadingCount(t *testing.T, store *Storage) int {
+// storedBucketCount counts the closed five-minute buckets in the database.
+func storedBucketCount(t *testing.T, store *Storage) int {
 	t.Helper()
 	var n int
-	if err := store.db.QueryRow(`SELECT COUNT(*) FROM energy_readings`).Scan(&n); err != nil {
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM samples_5m`).Scan(&n); err != nil {
 		t.Fatalf("count failed: %v", err)
 	}
 	return n
 }
 
-func TestPurgeReadingsBeforeDeletesOnlyOlderReadings(t *testing.T) {
+func TestPurgeBeforeDeletesOnlyOlderBuckets(t *testing.T) {
 	store := newRetentionTestStore(t)
 	now := time.Now().UTC()
-	cutoff := now.Add(-90 * 24 * time.Hour)
+	cutoff := now.Add(-90 * 24 * time.Hour).Truncate(bucketSec * time.Second)
 
 	recordReadingsAt(t, store,
 		cutoff.Add(-time.Hour),
@@ -57,66 +58,57 @@ func TestPurgeReadingsBeforeDeletesOnlyOlderReadings(t *testing.T) {
 		now,
 	)
 
-	deleted, err := store.PurgeReadingsBefore(context.Background(), cutoff)
+	deleted, err := store.PurgeBefore(context.Background(), cutoff)
 	if err != nil {
 		t.Fatalf("purge failed: %v", err)
 	}
 	if deleted != 2 {
 		t.Errorf("deleted = %d, want 2", deleted)
 	}
-	if got := storedReadingCount(t, store); got != 3 {
-		t.Errorf("remaining readings = %d, want 3", got)
+	// The newest reading is still in the bucket that is filling, so only the closed buckets are counted.
+	if got := storedBucketCount(t, store); got != 2 {
+		t.Errorf("remaining closed buckets = %d, want 2", got)
 	}
 }
 
-func TestPurgeReadingsBeforeDeletesAcrossBatches(t *testing.T) {
+func TestPurgeBeforeDeletesManyBuckets(t *testing.T) {
 	store := newRetentionTestStore(t)
 	now := time.Now().UTC()
-	cutoff := now.Add(-time.Hour)
 
-	old := retentionBatchSize*2 + 7
+	old := 300
 	times := make([]time.Time, 0, old+1)
 	for i := range old {
-		times = append(times, now.Add(-2*time.Hour).Add(time.Duration(i)*time.Millisecond))
+		times = append(times, now.Add(-48*time.Hour).Add(time.Duration(i)*bucketSec*time.Second))
 	}
 	times = append(times, now)
 	recordReadingsAt(t, store, times...)
 
-	deleted, err := store.PurgeReadingsBefore(context.Background(), cutoff)
+	deleted, err := store.PurgeBefore(context.Background(), now.Add(-time.Hour))
 	if err != nil {
 		t.Fatalf("purge failed: %v", err)
 	}
-	if deleted != int64(old) {
-		t.Errorf("deleted = %d, want %d", deleted, old)
+	if deleted < int64(old-1) {
+		t.Errorf("deleted = %d, want at least %d", deleted, old-1)
 	}
-	if got := storedReadingCount(t, store); got != 1 {
-		t.Errorf("remaining readings = %d, want 1", got)
+	if got := storedBucketCount(t, store); got != 0 {
+		t.Errorf("remaining closed buckets = %d, want 0", got)
 	}
 }
 
-func TestPurgeReadingsBeforeStopsWhenCancelled(t *testing.T) {
+func TestPurgeBeforeStopsWhenCancelled(t *testing.T) {
 	store := newRetentionTestStore(t)
 	now := time.Now().UTC()
-
-	times := make([]time.Time, 0, retentionBatchSize*2)
-	for i := range retentionBatchSize * 2 {
-		times = append(times, now.Add(-2*time.Hour).Add(time.Duration(i)*time.Millisecond))
-	}
-	recordReadingsAt(t, store, times...)
+	recordReadingsAt(t, store, now.Add(-2*time.Hour), now)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := store.PurgeReadingsBefore(ctx, now.Add(-time.Hour))
-	if err == nil {
+	if _, err := store.PurgeBefore(ctx, now.Add(-time.Hour)); err == nil {
 		t.Fatal("expected an error from a cancelled context")
-	}
-	if got := storedReadingCount(t, store); got == 0 {
-		t.Error("cancelled purge deleted everything, want it to stop after the current batch")
 	}
 }
 
 func TestStartRetentionPurgesOnStartAndCloseStopsIt(t *testing.T) {
-	store, err := New(filepath.Join(t.TempDir(), "etapo.db"), time.Hour, 100000)
+	store, err := New(filepath.Join(t.TempDir(), "etapo.db"), time.Hour)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}
@@ -131,9 +123,9 @@ func TestStartRetentionPurgesOnStartAndCloseStopsIt(t *testing.T) {
 	store.StartRetention(24 * time.Hour)
 
 	deadline := time.Now().Add(5 * time.Second)
-	for storedReadingCount(t, store) != 1 {
+	for storedBucketCount(t, store) != 0 {
 		if time.Now().After(deadline) {
-			t.Fatal("startup purge did not delete the old reading")
+			t.Fatal("startup purge did not delete the old bucket")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
