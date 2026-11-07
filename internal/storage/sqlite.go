@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -15,15 +16,22 @@ import (
 	"etapo/internal/models"
 )
 
+const (
+	retentionInterval  = 24 * time.Hour
+	retentionBatchSize = 5000
+)
+
 // Storage handles persistence of plugs and energy readings in SQLite.
 type Storage struct {
-	db            *sql.DB
-	bufferMu      sync.Mutex
-	buffer        []models.EnergyReading
-	maxBufferSize int
-	flushInterval time.Duration
-	stopFlush     chan struct{}
-	flushDone     chan struct{}
+	db              *sql.DB
+	bufferMu        sync.Mutex
+	buffer          []models.EnergyReading
+	maxBufferSize   int
+	flushInterval   time.Duration
+	stopFlush       chan struct{}
+	flushDone       chan struct{}
+	retentionCancel context.CancelFunc
+	retentionDone   chan struct{}
 }
 
 // New creates and initializes SQLite storage with WAL mode and in-memory batching.
@@ -180,6 +188,65 @@ func (s *Storage) flushLoop() {
 		case <-s.stopFlush:
 			_ = s.Flush()
 			return
+		}
+	}
+}
+
+// StartRetention deletes readings older than retention once at startup and then
+// once a day, until Close is called. Freed pages are reused by SQLite; the file
+// is not shrunk.
+func (s *Storage) StartRetention(retention time.Duration) {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.retentionCancel = cancel
+	s.retentionDone = make(chan struct{})
+	go s.retentionLoop(ctx, retention)
+}
+
+func (s *Storage) retentionLoop(ctx context.Context, retention time.Duration) {
+	ticker := time.NewTicker(retentionInterval)
+	defer ticker.Stop()
+	defer close(s.retentionDone)
+
+	for {
+		deleted, err := s.PurgeReadingsBefore(ctx, time.Now().Add(-retention))
+		if err != nil && ctx.Err() == nil {
+			log.Printf("[Storage] Retention purge failed after deleting %d readings: %v", deleted, err)
+		} else if deleted > 0 {
+			log.Printf("[Storage] Retention purge deleted %d readings older than %s", deleted, retention)
+		}
+
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// PurgeReadingsBefore deletes energy readings with a timestamp before cutoff, in
+// batches so that a large backlog does not hold the write lock for long. It stops
+// early when ctx is cancelled and returns the number of rows deleted so far.
+func (s *Storage) PurgeReadingsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	var total int64
+	for {
+		res, err := s.db.ExecContext(ctx, `
+			DELETE FROM energy_readings WHERE id IN (
+				SELECT id FROM energy_readings WHERE timestamp < ? ORDER BY timestamp LIMIT ?
+			)
+		`, cutoff.UTC(), retentionBatchSize)
+		if err != nil {
+			return total, err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return total, err
+		}
+		total += n
+		if n < retentionBatchSize {
+			return total, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return total, err
 		}
 	}
 }
@@ -670,6 +737,10 @@ func (s *Storage) GetBreakdown(ctx context.Context, rangeType, byType string, st
 
 // Close gracefully flushes the in-memory write buffer and closes the SQLite database.
 func (s *Storage) Close() error {
+	if s.retentionCancel != nil {
+		s.retentionCancel()
+		<-s.retentionDone
+	}
 	close(s.stopFlush)
 	<-s.flushDone
 	return s.db.Close()

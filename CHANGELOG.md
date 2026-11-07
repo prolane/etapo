@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-11-07
+
+### Added
+- `storage.retention_days` is enforced. Readings older than this are deleted once at startup and then once a day, in `etapo run` and `etapo collect`. Deletes run in batches. The database file is not shrunk; freed space is reused for new readings.
+
 ## [1.5.0] - 2026-11-07
 
 ### Added

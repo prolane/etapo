@@ -254,6 +254,11 @@ func (c *Config) FlushDuration() time.Duration {
 	return time.Duration(c.Storage.FlushIntervalSec) * time.Second
 }
 
+// RetentionDuration returns how long readings are kept as time.Duration.
+func (c *Config) RetentionDuration() time.Duration {
+	return time.Duration(c.Storage.RetentionDays) * 24 * time.Hour
+}
+
 // PollDuration returns the poll interval as time.Duration.
 func (c *Config) PollDuration() time.Duration {
 	if c.Collector.PollIntervalSec <= 0 {
