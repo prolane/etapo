@@ -146,6 +146,15 @@ A missing config file is an error; etapo never falls back to the example config.
        ip: "192.168.1.50"
    ```
 
+5. Restart etapo and check the log for `handshake1 returned HTTP 403` on any plug.
+
+### Adding plugs later
+
+Third-Party Compatibility is a setting on the Tapo account, not on each plug. It applies to every plug linked to that account.
+
+- A newly added plug can show `handshake1 returned HTTP 403` while the existing plugs work. The setting is not applied to new plugs automatically. To fix this, switch **Third-Party Compatibility** off and back on in the Tapo app. This pushes the setting to all plugs on the account.
+- Switching the setting off stops every plug on the account from connecting, including the ones that worked before. Switching it back on restores them. You do not need to change any plug or restart etapo; the next poll reconnects, which may take up to one poll interval.
+
 ---
 
 ## Standby Baseline
