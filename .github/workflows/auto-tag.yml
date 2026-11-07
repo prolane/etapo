@@ -2,9 +2,11 @@ name: Auto tag
 
 # Tags merged pull requests on main and publishes a release:
 #   PR labelled release:major -> next major (vX+1.0.0)
-#   other PRs (ours)          -> next minor (vX.Y+1.0), tagged when merged
+#   our PRs changing cmd/, internal/, go.mod or go.sum
+#                             -> next minor (vX.Y+1.0), tagged when merged
 #   Dependabot PRs            -> next patch (vX.Y.Z+1), tagged by the schedule.
 #                                All untagged Dependabot PRs share one patch release.
+#   Any other PR (docs, CI, e2e, Makefile) -> no release
 #
 # Merges made with GITHUB_TOKEN (dependabot-auto-merge.yml) do not start workflow
 # runs, so Dependabot PRs are picked up by the schedule instead of the closed event.
@@ -69,6 +71,24 @@ jobs:
             echo "No merged pull requests since $latest"
             exit 0
           fi
+
+          # Only PRs that change Go code or Go dependencies count, unless labelled release:major.
+          code_prs=""
+          while IFS=$'\t' read -r number author title labels; do
+            case ",$labels," in
+              *,release:major,*) code_prs+="$number"$'\t'"$author"$'\t'"$title"$'\t'"$labels"$'\n'; continue ;;
+            esac
+            files=$(gh api --paginate "repos/$REPO/pulls/$number/files" --jq '.[].filename')
+            if grep -Eq '^(cmd/|internal/|go\.(mod|sum)$)' <<< "$files"; then
+              code_prs+="$number"$'\t'"$author"$'\t'"$title"$'\t'"$labels"$'\n'
+            fi
+          done <<< "$prs"
+
+          if [ -z "$code_prs" ]; then
+            echo "No merged pull requests changing Go code or dependencies since $latest"
+            exit 0
+          fi
+          prs="$code_prs"
 
           bump="patch"
           while IFS=$'\t' read -r _ author _ labels; do
