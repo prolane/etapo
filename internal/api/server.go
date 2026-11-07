@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"etapo/internal/collector"
@@ -20,6 +21,7 @@ import (
 // Server provides the REST API and serves the embedded frontend.
 type Server struct {
 	cfg       *config.Config
+	cfgMu     sync.RWMutex // guards the plug addresses in cfg, which change when config.yaml is updated
 	storage   *storage.Storage
 	collector *collector.Collector
 	broker    *SSEBroker
@@ -102,7 +104,26 @@ func (s *Server) handlePlugs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.annotatePlugs(plugs)
 	writeJSON(w, http.StatusOK, plugs)
+}
+
+// annotatePlugs adds what storage does not know: whether each plug is online, and its address in config.yaml.
+func (s *Server) annotatePlugs(plugs []models.PlugWithLatest) {
+	s.cfgMu.RLock()
+	configIPs := make(map[string]string)
+	for _, pc := range s.cfg.Plugs {
+		if pc.Type == "tapo" {
+			configIPs[pc.ID] = pc.IP
+		}
+	}
+	s.cfgMu.RUnlock()
+
+	now := time.Now()
+	for i := range plugs {
+		plugs[i].ConfigIP = configIPs[plugs[i].ID]
+		plugs[i].Online = models.Online(plugs[i].LatestReading, now, s.cfg.OfflineAfter())
+	}
 }
 
 func (s *Server) handleBreakdown(w http.ResponseWriter, r *http.Request) {
@@ -248,7 +269,9 @@ func (s *Server) handlePlugSubroutes(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Plug not found", http.StatusNotFound)
 			return
 		}
-		writeJSON(w, http.StatusOK, plug)
+		plugs := []models.PlugWithLatest{*plug}
+		s.annotatePlugs(plugs)
+		writeJSON(w, http.StatusOK, plugs[0])
 		return
 	}
 
@@ -258,8 +281,87 @@ func (s *Server) handlePlugSubroutes(w http.ResponseWriter, r *http.Request) {
 		s.handleHistory(w, r, plugID)
 	case "power":
 		s.handlePower(w, r, plugID)
+	case "config-ip":
+		s.handleConfigIP(w, r, plugID)
 	default:
 		http.Error(w, "Not found", http.StatusNotFound)
+	}
+}
+
+// handleConfigIP writes the address a plug was found at into config.yaml. The client names the address it expects,
+// so a plug that has moved again since the dashboard was loaded is not written with an address nobody confirmed.
+func (s *Server) handleConfigIP(w http.ResponseWriter, r *http.Request, plugID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		IP string `json:"ip"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.IP == "" {
+		http.Error(w, `Invalid request body: expected {"ip": "x.x.x.x"}`, http.StatusBadRequest)
+		return
+	}
+
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+
+	configured, isTapo := s.configuredTapoIP(plugID)
+	if !isTapo {
+		http.Error(w, "Plug is not a Tapo plug in the configuration", http.StatusNotFound)
+		return
+	}
+	current, exists, err := s.storage.PlugIP(r.Context(), plugID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !exists {
+		http.Error(w, "Plug not found", http.StatusNotFound)
+		return
+	}
+	if current != req.IP {
+		http.Error(w, fmt.Sprintf("The plug is now at %s, not %s. Reload the dashboard.", current, req.IP), http.StatusConflict)
+		return
+	}
+	if configured == current {
+		http.Error(w, "config.yaml already uses this address", http.StatusConflict)
+		return
+	}
+	if s.cfg.Path() == "" {
+		http.Error(w, "etapo was started without a configuration file, so config.yaml cannot be updated", http.StatusConflict)
+		return
+	}
+	if err := config.SetPlugIP(s.cfg.Path(), plugID, current); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update config.yaml: %v", err), http.StatusInternalServerError)
+		return
+	}
+	s.setConfiguredIP(plugID, current)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"plug_id": plugID,
+		"ip":      current,
+	})
+}
+
+// configuredTapoIP returns the address of a Tapo plug in the configuration. The caller must hold cfgMu.
+func (s *Server) configuredTapoIP(plugID string) (string, bool) {
+	for _, pc := range s.cfg.Plugs {
+		if pc.ID == plugID && pc.Type == "tapo" {
+			return pc.IP, true
+		}
+	}
+	return "", false
+}
+
+// setConfiguredIP updates the in-memory address of a plug after config.yaml was written. The caller must hold cfgMu.
+func (s *Server) setConfiguredIP(plugID, ip string) {
+	for i := range s.cfg.Plugs {
+		if s.cfg.Plugs[i].ID == plugID {
+			s.cfg.Plugs[i].IP = ip
+		}
 	}
 }
 
@@ -374,13 +476,14 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	summary, err := s.storage.GetSummary(r.Context(), s.cfg.Billing.Currency, s.cfg.Billing.CostPerKWh, standby)
+	summary, err := s.storage.GetSummary(r.Context(), s.cfg.Billing.Currency, s.cfg.Billing.CostPerKWh, standby, s.cfg.OfflineAfter())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	summary.StandbyWindowStart = s.cfg.Standby.Start
 	summary.StandbyWindowEnd = s.cfg.Standby.End
+	summary.OfflineAfterSec = int(s.cfg.OfflineAfter().Seconds())
 
 	writeJSON(w, http.StatusOK, summary)
 }

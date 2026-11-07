@@ -59,6 +59,13 @@ type Config struct {
 	} `yaml:"tapo_auth"`
 
 	Plugs []PlugConfig `yaml:"plugs"`
+
+	path string // File the configuration was loaded from; empty when it was not loaded from a file
+}
+
+// Path returns the file the configuration was loaded from, or "" if it was not loaded from a file.
+func (c *Config) Path() string {
+	return c.path
 }
 
 // DefaultConfig returns a sane default configuration.
@@ -124,6 +131,7 @@ func Load(filePath string) (*Config, error) {
 		return nil, fmt.Errorf("invalid config %q: %w", filePath, err)
 	}
 
+	cfg.path = filePath
 	return cfg, nil
 }
 
@@ -252,4 +260,10 @@ func (c *Config) PollDuration() time.Duration {
 		return 10 * time.Second
 	}
 	return time.Duration(c.Collector.PollIntervalSec) * time.Second
+}
+
+// OfflineAfter returns how old a plug's latest reading may be before the plug is shown as offline.
+// Readings are written in batches, so this allows three poll intervals plus one flush interval.
+func (c *Config) OfflineAfter() time.Duration {
+	return 3*c.PollDuration() + c.FlushDuration()
 }

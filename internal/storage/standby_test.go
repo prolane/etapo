@@ -61,7 +61,7 @@ func TestStandbyRequiresNightReadings(t *testing.T) {
 		t.Errorf("expected 4.2W standby from the 03:00 reading, got %v", withNight.StandbyWatts)
 	}
 
-	summary, err := store.GetSummary(ctx, "EUR", 0.30, testStandby)
+	summary, err := store.GetSummary(ctx, "EUR", 0.30, testStandby, time.Minute)
 	if err != nil {
 		t.Fatalf("GetSummary failed: %v", err)
 	}

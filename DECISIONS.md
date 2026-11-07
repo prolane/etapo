@@ -87,3 +87,32 @@ This document tracks all foundational decisions for the `etapo` project, recordi
 - **Consequences:**
   - Any change to the KLAP hashing must be checked against a real device, since the mock driver cannot verify it.
   - If Tapo introduces a protocol version that does not need SHA-1, revisit this decision.
+
+---
+
+### ADR-007: Identify Tapo Plugs by MAC Address
+
+- **Status:** Accepted
+- **Context:** The router can give a Tapo plug a new IP address when it reconnects, and the configured address then points at nothing or at another device. All plugs of one TP-Link account share the same login, so a device at an old address can accept the login and receive commands meant for the configured plug. The `plugs` table already had a `mac` column, but nothing filled it.
+- **Alternatives Considered:**
+  - *DHCP reservation only:* the recommended setup, but it does not protect against a reservation that is lost or a plug that moves to another network, and it does not stop a different plug answering at the configured address.
+  - *ARP table lookup:* lists only devices that already answered at their current address, so it cannot find a plug that has moved.
+  - *Subnet broadcast of the discovery probe:* the Raspberry Pi's address is on a different subnet from the plugs, so a broadcast from it would not reach them. Unicast to each host of the /24 does reach them, and needs no socket option that differs per operating system.
+  - *Writing the new address into `config.yaml` automatically:* changes the production configuration without the user's consent, and a YAML rewrite drops comments. See ADR-008.
+- **Decision:** Store the MAC address the device reports on the first successful poll. Before opening a session, ask the device at the configured address for its MAC address with the discovery probe, and refuse a different MAC address. Check the MAC address again after the login. After three failed polls, search the /24 network of the last known address for the stored MAC address, at most once a minute, and move the plug to the address where it is found. The configuration file is not changed.
+- **Consequences:**
+  - A plug that moves to another /24 network is not found. A plug that has never connected cannot be searched for, because it has no stored MAC address.
+  - Every new session is preceded by one discovery exchange. If the device does not answer it, the login still checks the MAC address.
+  - The probe and the reply format were checked against eight P115 (EU) plugs on the live network. Any change to the probe must be checked against a real device, since the mock driver cannot answer it.
+
+---
+
+### ADR-008: Write config.yaml Only on Request
+
+- **Status:** Accepted
+- **Context:** The address of a moved plug is known at runtime, but the configuration file is the source of truth for the next start, and it also holds credentials and comments the user wrote.
+- **Decision:** The dashboard offers to write the detected address of a plug to `config.yaml`, and etapo writes it only when the user confirms. The endpoint requires the address the client expects, so a plug that has moved again is not written with an address nobody confirmed. Only the `ip:` line of that plug is changed, the other lines are left as they are, and the file is replaced atomically. Before each write, the previous file is copied to a timestamped backup, and only the two newest backups are kept.
+- **Consequences:**
+  - The file keeps its comments, quoting and layout. The change is refused if the value is not on the same line as its key.
+  - Backups and the file contain the TP-Link password, so their permissions must stay restrictive. Backups keep the permissions of the original file.
+  - Other settings in the file are read at the next start; the running process only updates the address of the plug that was written.

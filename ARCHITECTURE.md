@@ -72,3 +72,13 @@ Etapo can be executed as a unified daemon or as individual decoupled components:
 TP-Link Tapo P115 sockets communicate over local Wi-Fi using the **KLAP** (Kasa Light Anonymous Protocol).
 - Local authentication requires the user's Tapo/TP-Link account email & password or local credentials configured in the Tapo App.
 - Drivers implement a common interface `PlugDriver` allowing the app to switch between `MockDriver` (simulated real-world curves) and `KlapDriver` (physical sockets).
+
+---
+
+## 5. Plug Addressing and Recovery
+
+A Tapo plug is identified by its MAC address, not by its IP address, because the router can change the IP address when the plug reconnects. See [ADR-007](DECISIONS.md#adr-007-identify-tapo-plugs-by-mac-address) and [ADR-008](DECISIONS.md#adr-008-write-configyaml-only-on-request).
+- **Learning:** the MAC address from `get_device_info` is stored in `plugs.mac` on the first successful poll.
+- **Pre-login check:** before a KLAP session is opened, the driver sends the discovery probe (UDP port 20002) to the configured address. If the device there reports a different MAC address, the login is refused, so no session is opened on another plug. After the login the MAC address is checked again.
+- **Search:** after three failed polls in a row, the collector sends the same probe to the 254 hosts of the plug's /24 network, at most once a minute. A plug that answers from a new address is moved there: the driver is pointed at the new address, the stored address is updated and a `plug_moved` event is sent.
+- **Config address:** the dashboard compares the plug's current address with `config.yaml`. The file is only changed when the user confirms, through `POST /api/plugs/:id/config-ip`.

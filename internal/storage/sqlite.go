@@ -221,6 +221,50 @@ func (s *Storage) UpdatePlugState(ctx context.Context, id string, isOn bool) err
 	return err
 }
 
+// PlugMACs returns the MAC addresses learned from plugs, keyed by plug ID. Plugs without one are left out.
+func (s *Storage) PlugMACs(ctx context.Context) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, COALESCE(mac, '') FROM plugs WHERE COALESCE(mac, '') != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	macs := make(map[string]string)
+	for rows.Next() {
+		var id, mac string
+		if err := rows.Scan(&id, &mac); err != nil {
+			return nil, err
+		}
+		macs[id] = mac
+	}
+	return macs, rows.Err()
+}
+
+// SetPlugMAC stores the MAC address a plug reported.
+func (s *Storage) SetPlugMAC(ctx context.Context, id, mac string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE plugs SET mac = ?, updated_at = ? WHERE id = ?`, mac, time.Now().UTC(), id)
+	return err
+}
+
+// PlugIP returns the address a plug was last seen at, and whether the plug exists.
+func (s *Storage) PlugIP(ctx context.Context, id string) (string, bool, error) {
+	var ip string
+	err := s.db.QueryRowContext(ctx, `SELECT ip FROM plugs WHERE id = ?`, id).Scan(&ip)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return ip, true, nil
+}
+
+// UpdatePlugIP stores the address a plug is now reachable at.
+func (s *Storage) UpdatePlugIP(ctx context.Context, id, ip string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE plugs SET ip = ?, updated_at = ? WHERE id = ?`, ip, time.Now().UTC(), id)
+	return err
+}
+
 // GetPlugs returns all configured plugs enriched with latest reading and homeowner analytics.
 func (s *Storage) GetPlugs(ctx context.Context, costPerKWh float64, standbyPeriod models.StandbyPeriod) ([]models.PlugWithLatest, error) {
 	query := `
@@ -430,7 +474,8 @@ func (s *Storage) GetHistory(ctx context.Context, plugID string, start, end time
 }
 
 // GetSummary returns top-level aggregated figures across all sockets for the top KPI bar.
-func (s *Storage) GetSummary(ctx context.Context, currency string, costPerKWh float64, standbyPeriod models.StandbyPeriod) (*models.SystemSummary, error) {
+// A plug without a reading within offlineAfter adds no live power, because its last value is out of date.
+func (s *Storage) GetSummary(ctx context.Context, currency string, costPerKWh float64, standbyPeriod models.StandbyPeriod, offlineAfter time.Duration) (*models.SystemSummary, error) {
 	plugs, err := s.GetPlugs(ctx, costPerKWh, standbyPeriod)
 	if err != nil {
 		return nil, err
@@ -442,12 +487,15 @@ func (s *Storage) GetSummary(ctx context.Context, currency string, costPerKWh fl
 		LastUpdated:     time.Now().UTC(),
 	}
 
+	now := time.Now()
 	for _, p := range plugs {
 		if p.IsActive {
 			summary.ActivePlugsCount++
 		}
 		if p.LatestReading != nil && p.IsOn {
-			summary.TotalPowerWatts += p.LatestReading.PowerWatts
+			if models.Online(p.LatestReading, now, offlineAfter) {
+				summary.TotalPowerWatts += p.LatestReading.PowerWatts
+			}
 			summary.TotalEnergyToday += p.LatestReading.EnergyTodayKWh
 			summary.TotalEnergyMonth += p.LatestReading.EnergyMonthKWh
 		}
