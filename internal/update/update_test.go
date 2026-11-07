@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -18,12 +17,29 @@ import (
 	"testing"
 )
 
+// testSigner signs the fake releases. Its public key is passed to Run as a release key.
+var testSigner = mustGenerateKey("test-2026")
+
+func mustGenerateKey(id string) SigningKey {
+	k, err := GenerateSigningKey(id)
+	if err != nil {
+		panic(err)
+	}
+	return k
+}
+
+func testReleaseKeys() []ReleaseKey {
+	return []ReleaseKey{testSigner.Public()}
+}
+
 type fakeRelease struct {
 	tag         string
-	binary      string // program that the archive's etapo entry contains
-	noArchive   bool   // publish no archive for this platform
-	sums        string // overrides the checksums.txt content when set
-	noChecksums bool
+	binary      string       // program that the archive's etapo entry contains
+	noArchive   bool         // publish no archive for this platform
+	sums        string       // overrides the checksums.txt content when set
+	noChecksums bool         // publish no checksums.txt
+	unsigned    bool         // publish no checksums.txt.sig
+	signedBy    []SigningKey // keys that sign checksums.txt; nil means testSigner
 }
 
 func fakeBinary(version string) string {
@@ -67,6 +83,11 @@ func serveReleases(t *testing.T, releases ...fakeRelease) *httptest.Server {
 			digest := sha256.Sum256(archive)
 			sums = fmt.Sprintf("%s  %s\n", hex.EncodeToString(digest[:]), archiveName)
 		}
+		signers := r.signedBy
+		if signers == nil {
+			signers = []SigningKey{testSigner}
+		}
+		signature := SignChecksums([]byte(sums), signers)
 
 		writeRelease := func(w http.ResponseWriter, _ *http.Request) {
 			assets := []map[string]string{}
@@ -75,6 +96,9 @@ func serveReleases(t *testing.T, releases ...fakeRelease) *httptest.Server {
 			}
 			if !r.noChecksums {
 				assets = append(assets, map[string]string{"name": "checksums.txt", "browser_download_url": srv.URL + "/assets/" + r.tag + "/checksums"})
+			}
+			if !r.unsigned {
+				assets = append(assets, map[string]string{"name": "checksums.txt.sig", "browser_download_url": srv.URL + "/assets/" + r.tag + "/signature"})
 			}
 			json.NewEncoder(w).Encode(map[string]any{"tag_name": r.tag, "assets": assets})
 		}
@@ -87,6 +111,9 @@ func serveReleases(t *testing.T, releases ...fakeRelease) *httptest.Server {
 		})
 		mux.HandleFunc("/assets/"+r.tag+"/checksums", func(w http.ResponseWriter, _ *http.Request) {
 			fmt.Fprint(w, sums)
+		})
+		mux.HandleFunc("/assets/"+r.tag+"/signature", func(w http.ResponseWriter, _ *http.Request) {
+			w.Write(signature)
 		})
 	}
 
@@ -113,12 +140,6 @@ func readFile(t *testing.T, path string) string {
 	return string(data)
 }
 
-func acceptAttestation(context.Context, []byte) error { return nil }
-
-func rejectAttestation(context.Context, []byte) error {
-	return errors.New("signature does not match")
-}
-
 func TestRunInstallsLatestRelease(t *testing.T) {
 	srv := serveReleases(t,
 		fakeRelease{tag: "v1.7.0", binary: fakeBinary("v1.7.0")},
@@ -126,7 +147,7 @@ func TestRunInstallsLatestRelease(t *testing.T) {
 	)
 	exe := writeExecutable(t, "old binary")
 
-	res, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), VerifyAttestation: acceptAttestation})
+	res, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), ReleaseKeys: testReleaseKeys()})
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -155,7 +176,7 @@ func TestRunInstallsRequestedVersion(t *testing.T) {
 	)
 	exe := writeExecutable(t, "old binary")
 
-	res, err := Run(context.Background(), Options{Version: "1.5.0", Current: "v1.7.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), VerifyAttestation: acceptAttestation})
+	res, err := Run(context.Background(), Options{Version: "1.5.0", Current: "v1.7.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), ReleaseKeys: testReleaseKeys()})
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -168,10 +189,10 @@ func TestRunInstallsRequestedVersion(t *testing.T) {
 }
 
 func TestRunDoesNothingWhenUpToDate(t *testing.T) {
-	srv := serveReleases(t, fakeRelease{tag: "v1.7.0", binary: fakeBinary("v1.7.0")})
+	srv := serveReleases(t, fakeRelease{tag: "v1.7.0", binary: fakeBinary("v1.7.0"), unsigned: true})
 	exe := writeExecutable(t, "current binary")
 
-	res, err := Run(context.Background(), Options{Current: "1.7.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), VerifyAttestation: rejectAttestation})
+	res, err := Run(context.Background(), Options{Current: "1.7.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), ReleaseKeys: testReleaseKeys()})
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -194,7 +215,7 @@ func TestRunRejectsChecksumMismatch(t *testing.T) {
 	})
 	exe := writeExecutable(t, "old binary")
 
-	_, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), VerifyAttestation: acceptAttestation})
+	_, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), ReleaseKeys: testReleaseKeys()})
 	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("expected checksum mismatch, got %v", err)
 	}
@@ -214,7 +235,7 @@ func TestRunRejectsBinaryWithWrongVersion(t *testing.T) {
 	srv := serveReleases(t, fakeRelease{tag: "v1.7.0", binary: fakeBinary("v9.9.9")})
 	exe := writeExecutable(t, "old binary")
 
-	_, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), VerifyAttestation: acceptAttestation})
+	_, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), ReleaseKeys: testReleaseKeys()})
 	if err == nil || !strings.Contains(err.Error(), "expected v1.7.0") {
 		t.Fatalf("expected a version mismatch error, got %v", err)
 	}
@@ -223,47 +244,50 @@ func TestRunRejectsBinaryWithWrongVersion(t *testing.T) {
 	}
 }
 
-func TestRunChecksAttestationOfArchive(t *testing.T) {
-	srv := serveReleases(t, fakeRelease{tag: "v1.7.0", binary: fakeBinary("v1.7.0")})
+func TestRunRejectsUnsignedRelease(t *testing.T) {
+	srv := serveReleases(t, fakeRelease{tag: "v1.7.0", binary: fakeBinary("v1.7.0"), unsigned: true})
 	exe := writeExecutable(t, "old binary")
 
-	var checked []byte
-	check := func(_ context.Context, archive []byte) error {
-		checked = archive
-		return nil
-	}
-	if _, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), VerifyAttestation: check}); err != nil {
-		t.Fatalf("Run failed: %v", err)
-	}
-	if _, err := extractBinary(checked); err != nil {
-		t.Errorf("expected the downloaded archive to be checked, got %v", err)
-	}
-}
-
-func TestRunRejectsFailedAttestation(t *testing.T) {
-	srv := serveReleases(t, fakeRelease{tag: "v1.7.0", binary: fakeBinary("v1.7.0")})
-	exe := writeExecutable(t, "old binary")
-
-	_, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), VerifyAttestation: rejectAttestation})
-	if err == nil || !strings.Contains(err.Error(), "attestation check failed") {
-		t.Fatalf("expected an attestation error, got %v", err)
+	_, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), ReleaseKeys: testReleaseKeys()})
+	if err == nil || !strings.Contains(err.Error(), "is not signed") {
+		t.Fatalf("expected an unsigned release error, got %v", err)
 	}
 	if got := readFile(t, exe); got != "old binary" {
-		t.Errorf("binary changed after a failed attestation check: %q", got)
-	}
-	if _, err := os.Stat(exe + ".prev"); !os.IsNotExist(err) {
-		t.Errorf("expected no .prev backup, got %v", err)
+		t.Errorf("binary changed for an unsigned release: %q", got)
 	}
 }
 
-func TestRunReportsReleaseWithoutAttestation(t *testing.T) {
+func TestRunRejectsUntrustedSignature(t *testing.T) {
+	stranger := mustGenerateKey("stranger")
+	srv := serveReleases(t, fakeRelease{tag: "v1.7.0", binary: fakeBinary("v1.7.0"), signedBy: []SigningKey{stranger}})
+	exe := writeExecutable(t, "old binary")
+
+	_, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), ReleaseKeys: testReleaseKeys()})
+	if err == nil || !strings.Contains(err.Error(), "not signed by a trusted release key") {
+		t.Fatalf("expected an untrusted signature error, got %v", err)
+	}
+	if got := readFile(t, exe); got != "old binary" {
+		t.Errorf("binary changed for an untrusted release: %q", got)
+	}
+}
+
+func TestRunAcceptsReleaseSignedWithRotatedKey(t *testing.T) {
+	next := mustGenerateKey("next-2027")
+	srv := serveReleases(t, fakeRelease{tag: "v1.7.0", binary: fakeBinary("v1.7.0"), signedBy: []SigningKey{testSigner, next}})
+	exe := writeExecutable(t, "old binary")
+
+	if _, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), ReleaseKeys: []ReleaseKey{next.Public()}}); err != nil {
+		t.Fatalf("expected the release signed with the new key to install, got %v", err)
+	}
+}
+
+func TestRunChecksSignedChecksumsForArchive(t *testing.T) {
 	srv := serveReleases(t, fakeRelease{tag: "v1.7.0", binary: fakeBinary("v1.7.0")})
 	exe := writeExecutable(t, "old binary")
 
-	noAttestation := func(context.Context, []byte) error { return errNoAttestation }
-	_, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), VerifyAttestation: noAttestation})
-	if err == nil || !strings.Contains(err.Error(), "has no attestation") {
-		t.Fatalf("expected a missing attestation error, got %v", err)
+	res, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), ReleaseKeys: testReleaseKeys()})
+	if err != nil || res.Version != "v1.7.0" {
+		t.Fatalf("expected a signed release to install, got %+v, %v", res, err)
 	}
 }
 
@@ -271,7 +295,7 @@ func TestRunReportsMissingPlatformBuild(t *testing.T) {
 	srv := serveReleases(t, fakeRelease{tag: "v1.7.0", binary: fakeBinary("v1.7.0"), noArchive: true})
 	exe := writeExecutable(t, "old binary")
 
-	_, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), VerifyAttestation: acceptAttestation})
+	_, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), ReleaseKeys: testReleaseKeys()})
 	if err == nil || !strings.Contains(err.Error(), "no build for this platform") {
 		t.Fatalf("expected a missing build error, got %v", err)
 	}
@@ -281,7 +305,7 @@ func TestRunReportsMissingChecksums(t *testing.T) {
 	srv := serveReleases(t, fakeRelease{tag: "v1.7.0", binary: fakeBinary("v1.7.0"), noChecksums: true})
 	exe := writeExecutable(t, "old binary")
 
-	_, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), VerifyAttestation: acceptAttestation})
+	_, err := Run(context.Background(), Options{Current: "v1.6.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), ReleaseKeys: testReleaseKeys()})
 	if err == nil || !strings.Contains(err.Error(), "no checksums.txt") {
 		t.Fatalf("expected a missing checksums error, got %v", err)
 	}
@@ -291,7 +315,7 @@ func TestRunReportsUnknownVersion(t *testing.T) {
 	srv := serveReleases(t, fakeRelease{tag: "v1.7.0", binary: fakeBinary("v1.7.0")})
 	exe := writeExecutable(t, "old binary")
 
-	_, err := Run(context.Background(), Options{Version: "v1.2.3", Current: "v1.7.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), VerifyAttestation: acceptAttestation})
+	_, err := Run(context.Background(), Options{Version: "v1.2.3", Current: "v1.7.0", Executable: exe, APIURL: srv.URL, Client: srv.Client(), ReleaseKeys: testReleaseKeys()})
 	if err == nil || !strings.Contains(err.Error(), "no release v1.2.3") {
 		t.Fatalf("expected an unknown release error, got %v", err)
 	}

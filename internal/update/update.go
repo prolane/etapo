@@ -42,9 +42,8 @@ type Options struct {
 	APIURL     string       // GitHub API base URL; empty for DefaultAPIURL
 	Client     *http.Client // nil for a client with a timeout
 
-	// VerifyAttestation checks the release archive before it is installed. nil checks the
-	// GitHub attestation of the release workflow.
-	VerifyAttestation func(ctx context.Context, archive []byte) error
+	// ReleaseKeys are the keys that may sign the release. nil means the keys built into etapo.
+	ReleaseKeys []ReleaseKey
 }
 
 // Result describes the outcome of Run.
@@ -101,11 +100,27 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	if !ok {
 		return Result{}, fmt.Errorf("release %s has no checksums.txt", rel.TagName)
 	}
+	sigURL, ok := findAsset(rel, "checksums.txt.sig")
+	if !ok {
+		return Result{}, fmt.Errorf("release %s is not signed (no checksums.txt.sig)", rel.TagName)
+	}
 
 	sums, err := download(ctx, client, sumsURL, maxChecksumSize)
 	if err != nil {
 		return Result{}, fmt.Errorf("download checksums: %w", err)
 	}
+	sigs, err := download(ctx, client, sigURL, maxChecksumSize)
+	if err != nil {
+		return Result{}, fmt.Errorf("download checksum signature: %w", err)
+	}
+	keys := opts.ReleaseKeys
+	if keys == nil {
+		keys = builtinReleaseKeys
+	}
+	if _, err := VerifyChecksums(sums, sigs, keys); err != nil {
+		return Result{}, fmt.Errorf("release %s: %w", rel.TagName, err)
+	}
+
 	want, err := findChecksum(sums, archiveName)
 	if err != nil {
 		return Result{}, err
@@ -118,19 +133,6 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	digest := sha256.Sum256(archive)
 	if got := hex.EncodeToString(digest[:]); got != want {
 		return Result{}, fmt.Errorf("checksum mismatch for %s: expected %s, got %s", archiveName, want, got)
-	}
-
-	check := opts.VerifyAttestation
-	if check == nil {
-		check = func(ctx context.Context, archive []byte) error {
-			return checkReleaseAttestation(ctx, client, apiURL, archive)
-		}
-	}
-	if err := check(ctx, archive); err != nil {
-		if errors.Is(err, errNoAttestation) {
-			return Result{}, fmt.Errorf("release archive %s has no attestation, so it cannot be verified (releases before v1.7.0 have none)", archiveName)
-		}
-		return Result{}, fmt.Errorf("attestation check failed for %s: %w", archiveName, err)
 	}
 
 	binary, err := extractBinary(archive)
