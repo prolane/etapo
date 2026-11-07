@@ -57,7 +57,7 @@ Environment variables override the file. They are applied after the file is read
 | `db_path` | `"./data/etapo.db"` | SQLite database file. The folder is created if it does not exist. |
 | `flush_interval_sec` | `30` | Seconds between writes of buffered readings to the database. Must be above 0. |
 | `max_buffer_size` | `100` | Number of readings kept in memory before they are written at once. Must be above 0. |
-| `retention_days` | `90` | Must be above 0. **Not enforced yet:** etapo does not delete readings older than this. |
+| `retention_days` | `90` | Must be above 0. Readings older than this are deleted. etapo deletes them once at startup and then once a day, in `etapo run` and `etapo collect` (not in `etapo serve`). The database file is not shrunk; freed space is reused for new readings. See ADR-009 in `DECISIONS.md`. |
 
 ## collector
 

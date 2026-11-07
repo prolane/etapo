@@ -106,6 +106,7 @@ func main() {
 			log.Fatalf("Failed to initialize collector: %v", err)
 		}
 		go col.Start(ctx)
+		store.StartRetention(cfg.RetentionDuration())
 	}
 
 	var srv *api.Server

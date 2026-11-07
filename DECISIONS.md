@@ -116,3 +116,23 @@ This document tracks all foundational decisions for the `etapo` project, recordi
   - The file keeps its comments, quoting and layout. The change is refused if the value is not on the same line as its key.
   - Backups and the file contain the TP-Link password, so their permissions must stay restrictive. Backups keep the permissions of the original file.
   - Other settings in the file are read at the next start; the running process only updates the address of the plug that was written.
+
+---
+
+### ADR-009: Enforce Data Retention with an In-Process Daily Purge, No VACUUM
+
+- **Status:** Accepted (implemented in `internal/storage/sqlite.go`, `StartRetention` and `PurgeReadingsBefore`)
+- **Context:** `storage.retention_days` was validated and documented, but nothing deleted old readings, so the database grew without limit on the SD card. The purge has to run without any setup on the Raspberry Pi, and it must not add large writes to the SD card.
+- **Alternatives Considered:**
+  - *External cron job or systemd timer:* an extra piece to install and keep in sync with the binary and the config. Rejected because etapo must run with no setup beyond its binary and config.
+  - *Purge on every flush:* deletes a little more often, but runs a delete on the hot write path for no real gain, since data only ages by the day.
+  - *`VACUUM` or `PRAGMA incremental_vacuum` after a purge:* returns space to the filesystem, but a full `VACUUM` rewrites the whole database, which is slow on a Raspberry Pi 3 and causes heavy SD card writes. Rejected. Freed pages stay in the file and SQLite reuses them for new readings, so the file size stays roughly constant once it reaches its steady state.
+- **Decision:**
+  1. A goroutine with a `time.Ticker` in the process that writes readings (`etapo run` and `etapo collect`) deletes readings older than `retention_days` once a day. The purge also runs once at startup so a long-stopped Pi catches up on its first start.
+  2. Deletes are made in batches (for example, by timestamp ranges or a bounded `LIMIT`) so that the first purge after a long time does not hold the write lock for long.
+  3. The database is not shrunk. No `VACUUM` is run. The file size stays at its high-water mark and SQLite reuses the freed pages.
+  4. `etapo serve` does not purge. It only reads data, and a single process doing the purge keeps deletes from competing.
+- **Consequences:**
+  - The database file does not shrink after a purge. Disk use is bounded by the peak amount of data kept within the retention window, not by the total ever recorded.
+  - Retention is applied at most one day late. A process that is not running cannot purge, so data is kept longer until the next start.
+  - Changing `retention_days` takes effect at the next start, and the next daily run removes data that is now outside the window.
