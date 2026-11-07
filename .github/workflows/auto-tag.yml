@@ -138,3 +138,5 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       version: ${{ needs.tag.outputs.version }}
+    secrets:
+      RELEASE_SIGNING_KEYS: ${{ secrets.RELEASE_SIGNING_KEYS }}
