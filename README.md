@@ -283,3 +283,11 @@ The end-to-end tests build the binary and run it against mock plugs, checking th
 ```bash
 make e2e
 ```
+
+Before you push, run the security checks. They need network access the first time, to download the tools at the versions pinned in the Makefile:
+
+```bash
+make security
+```
+
+This runs `govulncheck` (known vulnerabilities in dependencies) and `gosec` (high-severity, high-confidence findings in the code). CodeQL runs on GitHub; a pull request cannot merge while it reports critical, high or medium alerts.

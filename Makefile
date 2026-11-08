@@ -4,8 +4,10 @@ DIST := dist
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 CONFIG ?= config.example.yaml
+GOVULNCHECK_VERSION ?= v1.9.0
+GOSEC_VERSION ?= v2.30.0
 
-.PHONY: help build run test e2e vet fmt fmt-check lint ci cross clean
+.PHONY: help build run test e2e vet fmt fmt-check lint security ci cross clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -34,6 +36,10 @@ fmt-check: ## Fail if any Go file is not gofmt-clean
 	if [ -n "$$unformatted" ]; then echo "Files need gofmt:"; echo "$$unformatted"; exit 1; fi
 
 lint: fmt-check vet ## Run format check and vet
+
+security: ## Check for known vulnerabilities (govulncheck) and insecure code (gosec); needs network the first time
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+	$(GO) run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) -severity high -confidence high -quiet ./...
 
 ci: lint test e2e cross ## Run everything CI runs
 

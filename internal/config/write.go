@@ -164,7 +164,7 @@ func backupConfig(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	name := base + "-" + time.Now().Format("20060102-150405") + ".bak"
-	if err := os.WriteFile(filepath.Join(dir, name), data, perm); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, name), data, perm); err != nil { // #nosec G703 -- the directory is the operator's config directory and the name is generated
 		return fmt.Errorf("failed to back up config file: %w", err)
 	}
 
