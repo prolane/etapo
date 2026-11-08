@@ -7,7 +7,7 @@ CONFIG ?= config.example.yaml
 GOVULNCHECK_VERSION ?= v1.9.0
 GOSEC_VERSION ?= v2.30.0
 
-.PHONY: help build run test e2e vet fmt fmt-check lint security ci cross clean
+.PHONY: help build run test e2e vet fmt fmt-check lint govulncheck gosec security ci cross clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -37,9 +37,13 @@ fmt-check: ## Fail if any Go file is not gofmt-clean
 
 lint: fmt-check vet ## Run format check and vet
 
-security: ## Check for known vulnerabilities (govulncheck) and insecure code (gosec); needs network the first time
+govulncheck: ## Check dependencies for known vulnerabilities; needs network the first time
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+gosec: ## Check the code for high-severity, high-confidence security issues; needs network the first time
 	$(GO) run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) -severity high -confidence high -quiet ./...
+
+security: govulncheck gosec ## Run govulncheck and gosec, as the security workflow does
 
 ci: lint test e2e cross ## Run everything CI runs
 
