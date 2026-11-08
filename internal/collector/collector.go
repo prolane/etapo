@@ -240,7 +240,7 @@ func (c *Collector) SetPower(ctx context.Context, plugID string, on bool) error 
 	}
 
 	if err := c.storage.SetPlugOn(ctx, plugID, on); err != nil {
-		log.Printf("[Collector] Failed to store relay state for %s: %v", plugID, err)
+		log.Printf("[Collector] Failed to store relay state for %s: %v", mp.config.ID, err)
 	}
 
 	// Poll immediately to update state
