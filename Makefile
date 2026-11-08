@@ -6,8 +6,9 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 CONFIG ?= config.example.yaml
 GOVULNCHECK_VERSION ?= v1.9.0
 GOSEC_VERSION ?= v2.30.0
+GITLEAKS_VERSION ?= v8.30.1
 
-.PHONY: help build run test e2e vet fmt fmt-check lint govulncheck gosec security ci cross clean
+.PHONY: help build run test e2e vet fmt fmt-check lint govulncheck gosec secrets security ci cross clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -43,7 +44,10 @@ govulncheck: ## Check dependencies for known vulnerabilities; needs network the 
 gosec: ## Check the code for high-severity, high-confidence security issues; needs network the first time
 	$(GO) run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) -severity high -confidence high -quiet ./...
 
-security: govulncheck gosec ## Run govulncheck and gosec, as the security workflow does
+secrets: ## Scan the git history for committed secrets (gitleaks); needs network the first time
+	$(GO) run github.com/zricethezav/gitleaks/v8@$(GITLEAKS_VERSION) detect --no-banner --redact
+
+security: govulncheck gosec secrets ## Run govulncheck, gosec and gitleaks, as the security workflow does
 
 ci: lint test e2e cross ## Run everything CI runs
 
