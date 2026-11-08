@@ -260,13 +260,15 @@ etapo --update-to v1.5.0     # a specific release (also used to go back to an ol
 | `/api/summary?nights=N` | `GET` | Aggregated total live Watts (offline plugs left out), today's kWh, estimated cost and standby. `nights` (1-365, default 7) sets how many nights the standby average covers. `offline_after_sec` is how old a reading may be before its plug counts as offline |
 | `/api/plugs?nights=N` | `GET` | List all plugs with latest telemetry, on/off status and standby. Each plug also has `online`, `config_ip` (its address in `config.yaml`, for Tapo plugs) and `mac`. `nights` as for `/api/summary` |
 | `/api/plugs/:id` | `GET` | Details for a specific plug |
-| `/api/plugs/:id/history?range=day\|24h\|7d\|month` | `GET` | Average power per bucket for the detail chart: `day` (a local calendar day, `date=YYYY-MM-DD`, default today) and `24h` in 5 minute buckets, `7d` in 1 hour buckets, `month` (a calendar month, `month=YYYY-MM`, default current) in 4 hour buckets. Buckets without readings are `null`. `today` (same as `day`), `1h` (1 minute buckets) and `30d` (4 hours) are also accepted |
-| `/api/breakdown?range=today\|month&by=plug\|category` | `GET` | Consumption per hour (today) or per day (month) for the stacked chart. Pick a past period with `date=YYYY-MM-DD` (day) or `month=YYYY-MM` (month). Future periods return 400 |
+| `/api/plugs/:id/history?range=1h\|24h\|day\|7d\|30d\|month` | `GET` | Average power per bucket for the detail chart: `day` (a local calendar day, `date=YYYY-MM-DD`, default today) and `24h` in 5 minute buckets, `7d` in 1 hour buckets, `month` (a calendar month, `month=YYYY-MM`, default current) in 4 hour buckets. Buckets without readings are `null`. `today` (same as `day`), `1h` (5 minute buckets) and `30d` (4 hours) are also accepted |
+| `/api/breakdown?range=today\|month&by=plug` | `GET` | Consumption per hour (today) or per day (month) for the stacked chart. Pick a past period with `date=YYYY-MM-DD` (day) or `month=YYYY-MM` (month). Future periods return 400 |
 | `/api/leaderboard/day?date=YYYY-MM-DD` | `GET` | Each plug's peak power, kWh and estimated cost for a local calendar day. Defaults to today; future days return 400 |
 | `/api/leaderboard/month?month=YYYY-MM` | `GET` | Each plug's peak power, kWh and estimated cost for a calendar month. Defaults to the current month; future months return 400 |
 | `/api/plugs/:id/power` | `POST` | Toggle plug relay: `{"on": true\|false}` |
 | `/api/plugs/:id/config-ip` | `POST` | Writes the address a Tapo plug was found at into `config.yaml`: `{"ip": "x.x.x.x"}`. Only that plug's `ip` line changes, and a backup is kept. Returns 409 if the plug is not at that address or the file already has it. See [docs/configuration.md](docs/configuration.md#what-etapo-writes-to-the-file) |
 | `/api/events` | `GET` | Server-Sent Events (SSE) real-time stream of socket readings (`reading`) and of plugs found at a new address (`plug_moved`) |
+
+Every parameter, response field and known issue is described in **[docs/api.md](docs/api.md)**. The Tapo responses etapo reads are in **[docs/tapo-api.md](docs/tapo-api.md)**.
 
 ---
 

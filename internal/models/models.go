@@ -61,7 +61,6 @@ type PlugWithLatest struct {
 	LatestReading      *EnergyReading `json:"latest_reading,omitempty"`
 	PeakWattsToday     float64        `json:"peak_watts_today"`     // Peak power recorded today (Max W)
 	AvgWattsToday      float64        `json:"avg_watts_today"`      // Average power consumption today
-	RuntimeTodayHours  float64        `json:"runtime_today_hours"`  // Hours active (> threshold) today
 	StandbyWatts       float64        `json:"standby_watts"`        // Baseline vampire/standby load (02:00-05:00 AM)
 	HasStandbyData     bool           `json:"has_standby_data"`     // Readings exist in the 02:00-05:00 window
 	AnnualStandbyCost  float64        `json:"annual_standby_cost"`  // Projected cost of standby per year (€/yr)

@@ -121,7 +121,7 @@ This document tracks all foundational decisions for the `etapo` project, recordi
 
 ### ADR-009: Enforce Data Retention with an In-Process Daily Purge, No VACUUM
 
-- **Status:** Accepted (implemented in `internal/storage/sqlite.go`, `StartRetention` and `PurgeReadingsBefore`)
+- **Status:** Accepted (implemented in `internal/storage/sqlite.go`, `StartRetention` and `PurgeBefore`). Since 1.10.0 the purge applies to 5-minute buckets and daily totals instead of raw readings (ADR-011).
 - **Context:** `storage.retention_days` was validated and documented, but nothing deleted old readings, so the database grew without limit on the SD card. The purge has to run without any setup on the Raspberry Pi, and it must not add large writes to the SD card.
 - **Alternatives Considered:**
   - *External cron job or systemd timer:* an extra piece to install and keep in sync with the binary and the config. Rejected because etapo must run with no setup beyond its binary and config.
@@ -160,3 +160,28 @@ This document tracks all foundational decisions for the `etapo` project, recordi
   - The release workflow holds the signing key. Anyone who can change the release workflow on `main` can therefore sign a release, which is the same trust as publishing a release today. The key must be rotated if it may have leaked.
   - A binary cannot be protected against a leaked key by the updater alone. The response is to rotate the key and install the replacement release by hand (`docs/release-signing.md`).
   - Releases published before the first signed release cannot be installed with `--update-to`.
+
+---
+
+### ADR-011: Store 5-Minute Buckets and Daily Totals Instead of Raw Readings
+
+- **Status:** Accepted (implemented in 1.10.0)
+- **Context:** Every 10-second reading of every plug was written to SQLite and kept for up to `retention_days`. With eight plugs that is 69 120 rows per day, about 24 MB, and at the default 1095-day retention about 26 GB. On the Raspberry Pi the process wrote 680 to 870 MB per day to the SD card, and every dashboard figure was recomputed from raw rows. The dashboard never shows anything finer than 5 minutes; the live value comes from the latest poll. See `docs/data-design.md` for the measurements.
+- **Alternatives Considered:**
+  - *Keep raw readings and add a rollup table:* keeps the write volume and the SD card wear. Rejected.
+  - *Write the open bucket to its own row on every poll:* about one write per plug per poll. Rejected for the same reason.
+  - *Write the open bucket on every flush, to the bucket table:* about eight pages per flush. Rejected in favour of keeping it in the plug's state row, which is one page for all plugs.
+- **Decision:**
+  1. Readings are summed in memory into 5-minute buckets per plug (`sum_mw`, `max_mw`, `n`). A closed bucket is written to `samples_5m`. The bucket still filling is stored in `plug_state` on each flush, so reads include it.
+  2. Daily totals per plug and local day (`daily`) hold the device counters at the last sample, the peak and the sum and count of samples. They are written on each flush.
+  3. The live state of each plug (`plug_state`) is rewritten on each flush. Relay changes from the dashboard are written at once.
+  4. Raw readings are not stored. An existing database is copied to `<name>-before-rollups-<time>.db.bak` before its `energy_readings` table is dropped. The data is not converted.
+  5. Averages are computed from the sums, so they stay exact. Partial buckets from a restart are merged by the same upsert.
+- **Consequences:**
+  - About 2 300 bucket rows per day for eight plugs, about 140 MB at 1095 days.
+  - A bucket is in `samples_5m` once it closes, and the open bucket is in `plug_state`. The API reads both.
+  - Live values, and the open bucket, lag by up to one flush interval in the API.
+  - `max_buffer_size` is ignored. The setting is still accepted.
+  - Runtime from the device (`today_runtime`) is not stored, because the runtime widget was removed.
+  - SD card writes are expected to fall to tens of MB per day. This must be measured on the Pi (see `docs/data-design.md`, section 9) before the decision is marked as verified.
+

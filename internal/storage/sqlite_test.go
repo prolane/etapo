@@ -18,7 +18,7 @@ func TestStorageLifecycle(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	dbPath := filepath.Join(tempDir, "test.db")
-	store, err := New(dbPath, 1*time.Second, 10)
+	store, err := New(dbPath, time.Second)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestStorageLifecycle(t *testing.T) {
 }
 
 func TestHistoryCoversWholePeriod(t *testing.T) {
-	store, err := New(filepath.Join(t.TempDir(), "test.db"), 1*time.Second, 10)
+	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}

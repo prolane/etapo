@@ -10,7 +10,7 @@ import (
 )
 
 func TestMonthStatsUsesRequestedMonth(t *testing.T) {
-	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second, 10)
+	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestMonthStatsUsesRequestedMonth(t *testing.T) {
 }
 
 func TestDayStatsUseRequestedDay(t *testing.T) {
-	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second, 10)
+	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}

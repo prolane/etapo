@@ -8,11 +8,9 @@ server:
 storage:
   # SQLite database path
   db_path: "./data/etapo.db"
-  # How often in seconds to flush in-memory batches to disk (protects Raspberry Pi SD card)
+  # How often in seconds to write the live state and the open 5-minute bucket to disk (protects the SD card)
   flush_interval_sec: 30
-  # Maximum buffered readings before forcing an immediate write
-  max_buffer_size: 100
-  # Data retention in days
+  # Data retention in days for 5-minute buckets and daily totals
   retention_days: 90
 
 collector:

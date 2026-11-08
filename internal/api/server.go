@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -136,9 +137,9 @@ func (s *Server) handleBreakdown(w http.ResponseWriter, r *http.Request) {
 	if rangeParam != "month" {
 		rangeParam = "today"
 	}
-	byParam := r.URL.Query().Get("by")
-	if byParam != "category" {
-		byParam = "plug"
+	if by := r.URL.Query().Get("by"); by != "" && by != "plug" {
+		http.Error(w, "by must be plug", http.StatusBadRequest)
+		return
 	}
 
 	start, err := periodStart(r, rangeParam)
@@ -147,13 +148,7 @@ func (s *Server) handleBreakdown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	standby, err := s.standbyPeriod(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	breakdown, err := s.storage.GetBreakdown(r.Context(), rangeParam, byParam, start, s.cfg.Billing.CostPerKWh, standby)
+	breakdown, err := s.storage.GetBreakdown(r.Context(), rangeParam, start)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -391,9 +386,10 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request, plugID st
 }
 
 // historyWindow returns the period and bucket size for a history request. The rolling
-// ranges are 1h (1 minute buckets), 24h (5 minutes), 7d (1 hour) and 30d (4 hours);
+// ranges are 1h (5 minute buckets), 24h (5 minutes), 7d (1 hour) and 30d (4 hours);
 // range=day is a local calendar day (date=YYYY-MM-DD, default today) in 5 minute buckets,
 // and range=month is a calendar month (month=YYYY-MM, local time) in 4 hour buckets.
+// A missing range means 24h. An unknown range is an error.
 func historyWindow(r *http.Request, now time.Time) (start, end time.Time, bucket time.Duration, err error) {
 	end = now
 	switch r.URL.Query().Get("range") {
@@ -407,7 +403,10 @@ func historyWindow(r *http.Request, now time.Time) (start, end time.Time, bucket
 		if end.After(now) {
 			end = now
 		}
-	case "24h":
+	case "1h":
+		bucket = 5 * time.Minute
+		start = now.Add(-time.Hour).Truncate(bucket)
+	case "", "24h":
 		bucket = 5 * time.Minute
 		start = now.Add(-24 * time.Hour).Truncate(bucket)
 	case "7d":
@@ -427,8 +426,7 @@ func historyWindow(r *http.Request, now time.Time) (start, end time.Time, bucket
 			end = now
 		}
 	default:
-		bucket = time.Minute
-		start = now.Add(-time.Hour).Truncate(bucket)
+		return time.Time{}, time.Time{}, 0, fmt.Errorf("range must be 1h, 24h, day, 7d, 30d or month")
 	}
 	return start, end, bucket, nil
 }
@@ -440,9 +438,9 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request, plugID stri
 	}
 
 	var req struct {
-		On bool `json:"on"`
+		On *bool `json:"on"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.On == nil {
 		http.Error(w, "Invalid request body: expected {\"on\": true|false}", http.StatusBadRequest)
 		return
 	}
@@ -452,7 +450,11 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request, plugID stri
 		return
 	}
 
-	if err := s.collector.SetPower(r.Context(), plugID, req.On); err != nil {
+	if err := s.collector.SetPower(r.Context(), plugID, *req.On); err != nil {
+		if errors.Is(err, collector.ErrPlugNotFound) {
+			http.Error(w, "Plug not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, fmt.Sprintf("Failed to toggle socket: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -460,7 +462,7 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request, plugID stri
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"plug_id": plugID,
-		"on":      req.On,
+		"on":      *req.On,
 	})
 }
 

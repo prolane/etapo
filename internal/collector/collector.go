@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/netip"
@@ -23,6 +24,9 @@ const (
 	// locateWait is how long a network search collects replies.
 	locateWait = 2 * time.Second
 )
+
+// ErrPlugNotFound means no plug with the given ID is configured.
+var ErrPlugNotFound = errors.New("plug not found")
 
 // Broadcaster is an interface for pushing real-time events to connected API clients.
 type Broadcaster interface {
@@ -113,6 +117,14 @@ func New(cfg *config.Config, store *storage.Storage, b Broadcaster) (*Collector,
 		plugs:       make(map[string]*managedPlug),
 		stopChan:    make(chan struct{}),
 		doneChan:    make(chan struct{}),
+	}
+
+	visible := make([]string, 0, len(cfg.Plugs))
+	for _, pc := range cfg.Plugs {
+		visible = append(visible, pc.ID)
+	}
+	if err := store.HidePlugsExcept(context.Background(), visible); err != nil {
+		return nil, fmt.Errorf("failed to hide removed plugs: %w", err)
 	}
 
 	macs, err := store.PlugMACs(context.Background())
@@ -220,14 +232,16 @@ func (c *Collector) SetPower(ctx context.Context, plugID string, on bool) error 
 	c.plugsMu.RUnlock()
 
 	if !exists {
-		return fmt.Errorf("plug %q not found", plugID)
+		return fmt.Errorf("%w: %q", ErrPlugNotFound, plugID)
 	}
 
 	if err := mp.driver.SetPower(ctx, on); err != nil {
 		return fmt.Errorf("failed to toggle plug: %w", err)
 	}
 
-	_ = c.storage.UpdatePlugState(ctx, plugID, on)
+	if err := c.storage.SetPlugOn(ctx, plugID, on); err != nil {
+		log.Printf("[Collector] Failed to store relay state for %s: %v", mp.config.ID, err)
+	}
 
 	// Poll immediately to update state
 	go c.pollDevice(context.Background(), mp)
@@ -262,7 +276,7 @@ func (c *Collector) pollDevice(ctx context.Context, mp *managedPlug) {
 		return
 	}
 
-	_ = c.storage.UpdatePlugState(ctx, mp.config.ID, info.IsOn)
+	c.storage.RecordPlugState(mp.config.ID, info.IsOn)
 	c.rememberMAC(ctx, mp, info.MAC)
 
 	// 2. Get Energy Telemetry

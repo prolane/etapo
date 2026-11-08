@@ -11,7 +11,7 @@ import (
 
 func newBreakdownStore(t *testing.T) *Storage {
 	t.Helper()
-	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second, 10)
+	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestGetBreakdownTodayBucketsByLocalHour(t *testing.T) {
 		t.Fatalf("flush failed: %v", err)
 	}
 
-	resp, err := store.GetBreakdown(ctx, "today", "plug", midnight, 0.30, testStandby)
+	resp, err := store.GetBreakdown(ctx, "today", midnight)
 	if err != nil {
 		t.Fatalf("GetBreakdown failed: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestGetBreakdownSelectedDayOnlyUsesThatDay(t *testing.T) {
 		t.Fatalf("flush failed: %v", err)
 	}
 
-	resp, err := store.GetBreakdown(ctx, "today", "plug", yesterday, 0.30, testStandby)
+	resp, err := store.GetBreakdown(ctx, "today", yesterday)
 	if err != nil {
 		t.Fatalf("GetBreakdown failed: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestGetBreakdownSelectedMonthUsesThatMonth(t *testing.T) {
 		t.Fatalf("flush failed: %v", err)
 	}
 
-	resp, err := store.GetBreakdown(ctx, "month", "plug", prevStart, 0.30, testStandby)
+	resp, err := store.GetBreakdown(ctx, "month", prevStart)
 	if err != nil {
 		t.Fatalf("GetBreakdown failed: %v", err)
 	}

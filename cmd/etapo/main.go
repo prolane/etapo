@@ -106,7 +106,7 @@ func main() {
 	}
 
 	// 1. Initialize SQLite Storage
-	store, err := storage.New(cfg.Storage.DBPath, cfg.FlushDuration(), cfg.Storage.MaxBufferSize)
+	store, err := storage.New(cfg.Storage.DBPath, cfg.FlushDuration())
 	if err != nil {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}

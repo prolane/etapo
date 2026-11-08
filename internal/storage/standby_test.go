@@ -10,7 +10,7 @@ import (
 )
 
 func TestStandbyRequiresNightReadings(t *testing.T) {
-	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second, 10)
+	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestStandbyRequiresNightReadings(t *testing.T) {
 
 	y, m, d := time.Now().Date()
 	noon := time.Date(y, m, d, 12, 0, 0, 0, time.Local)
-	night := time.Date(y, m, d, 3, 0, 0, 0, time.Local)
+	night := referenceStart(testStandby).Add(time.Hour)
 
 	store.RecordReading(models.EnergyReading{PlugID: "day-only", Timestamp: noon, PowerWatts: 38.8})
 	store.RecordReading(models.EnergyReading{PlugID: "with-night", Timestamp: noon, PowerWatts: 38.8})
@@ -75,8 +75,14 @@ func TestStandbyRequiresNightReadings(t *testing.T) {
 
 var testStandby = models.StandbyPeriod{StartMinute: 120, EndMinute: 300, Nights: 7}
 
+// referenceStart returns the start of the standby window the summary reads, which depends on the time of day.
+func referenceStart(period models.StandbyPeriod) time.Time {
+	wins := standbyWindows(time.Now(), period)
+	return time.Unix(wins[len(wins)-1].start, 0).In(time.Local)
+}
+
 func TestStandbyWindowIsConfigurable(t *testing.T) {
-	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second, 10)
+	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}
@@ -89,34 +95,44 @@ func TestStandbyWindowIsConfigurable(t *testing.T) {
 		t.Fatalf("failed to upsert plug: %v", err)
 	}
 
-	today := startOfLocalDay(time.Now())
-	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: today.Add(12 * time.Hour), PowerWatts: 50})
-	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: today.Add(23*time.Hour + 30*time.Minute), PowerWatts: 3})
+	daytime := models.StandbyPeriod{StartMinute: 13 * 60, EndMinute: 14 * 60, Nights: 1}
+	ref := referenceStart(daytime)
+	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: ref.Add(-time.Hour), PowerWatts: 50})
+	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: ref.Add(30 * time.Minute), PowerWatts: 3})
 	if err := store.Flush(); err != nil {
 		t.Fatalf("flush failed: %v", err)
 	}
 
-	wrapping := models.StandbyPeriod{StartMinute: 23 * 60, EndMinute: 60, Nights: 7}
-	plugs, err := store.GetPlugs(ctx, 0.30, wrapping)
+	plugs, err := store.GetPlugs(ctx, 0.30, daytime)
 	if err != nil {
 		t.Fatalf("GetPlugs failed: %v", err)
 	}
 	if !plugs[0].HasStandbyData || plugs[0].StandbyWatts != 3 {
-		t.Errorf("23:00-01:00 window: expected 3W from the 23:30 reading, got has=%v watts=%v", plugs[0].HasStandbyData, plugs[0].StandbyWatts)
+		t.Errorf("13:00-14:00 window: expected 3W from the reference window's reading, got has=%v watts=%v", plugs[0].HasStandbyData, plugs[0].StandbyWatts)
+	}
+}
+
+func TestStandbyWindowsWrapPastMidnight(t *testing.T) {
+	period := models.StandbyPeriod{StartMinute: 23 * 60, EndMinute: 60, Nights: 1}
+	at := func(y int, m time.Month, d, h, min int) time.Time {
+		return time.Date(y, m, d, h, min, 0, 0, time.Local)
 	}
 
-	daytime := models.StandbyPeriod{StartMinute: 13 * 60, EndMinute: 14 * 60, Nights: 7}
-	plugs, err = store.GetPlugs(ctx, 0.30, daytime)
-	if err != nil {
-		t.Fatalf("GetPlugs failed: %v", err)
+	// At 10:00 on 8 Nov the window that started on 7 Nov at 23:00 has ended.
+	wins := standbyWindows(at(2026, 11, 8, 10, 0), period)
+	if len(wins) != 1 || wins[0].start != at(2026, 11, 7, 23, 0).Unix() || wins[0].end != at(2026, 11, 8, 1, 0).Unix() {
+		t.Errorf("at 10:00: got %v, want the window 7 Nov 23:00 to 8 Nov 01:00", wins)
 	}
-	if plugs[0].HasStandbyData {
-		t.Errorf("13:00-14:00 window: expected no data, got %v W", plugs[0].StandbyWatts)
+
+	// At 00:18 on 8 Nov the window that started on 7 Nov is still running, so the one before it is used.
+	wins = standbyWindows(at(2026, 11, 8, 0, 18), period)
+	if len(wins) != 1 || wins[0].end != at(2026, 11, 7, 1, 0).Unix() {
+		t.Errorf("at 00:18: got %v, want the window that ended 7 Nov 01:00", wins)
 	}
 }
 
 func TestStandbyAveragesWithinSelectedNights(t *testing.T) {
-	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second, 10)
+	store, err := New(filepath.Join(t.TempDir(), "test.db"), time.Second)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}
@@ -129,10 +145,12 @@ func TestStandbyAveragesWithinSelectedNights(t *testing.T) {
 		t.Fatalf("failed to upsert plug: %v", err)
 	}
 
-	today := startOfLocalDay(time.Now())
-	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: today.Add(3 * time.Hour), PowerWatts: 4})
-	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: today.AddDate(0, 0, -3).Add(3 * time.Hour), PowerWatts: 6})
-	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: today.AddDate(0, 0, -8).Add(3 * time.Hour), PowerWatts: 100})
+	// Nights are counted back from the reference window, the last one that has ended.
+	ref := referenceStart(testStandby)
+	nightsAgo := func(n int) time.Time { return ref.AddDate(0, 0, -n).Add(time.Hour) }
+	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: nightsAgo(0), PowerWatts: 4})
+	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: nightsAgo(3), PowerWatts: 6})
+	store.RecordReading(models.EnergyReading{PlugID: "p1", Timestamp: nightsAgo(8), PowerWatts: 100})
 	if err := store.Flush(); err != nil {
 		t.Fatalf("flush failed: %v", err)
 	}

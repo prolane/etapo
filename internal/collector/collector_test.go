@@ -93,7 +93,7 @@ type scanCall struct {
 // newTestCollector returns a collector with one plug whose driver is replaced by a fake.
 func newTestCollector(t *testing.T) (*Collector, *storage.Storage, *fakeTapo, *eventRecorder) {
 	t.Helper()
-	store, err := storage.New(filepath.Join(t.TempDir(), "etapo.db"), time.Second, 10)
+	store, err := storage.New(filepath.Join(t.TempDir(), "etapo.db"), time.Second)
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}
