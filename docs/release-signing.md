@@ -48,7 +48,7 @@ A stolen private key lets someone sign a release that every binary still trustin
 
 1. Remove the compromised line from `RELEASE_SIGNING_KEYS` and add a new key, as in the rotation steps above.
 2. Publish a release signed only with the new key, and remove the compromised public key from `builtinReleaseKeys`.
-3. Tell the Pi owner (and any other installation) to install that release by hand, because a binary that still trusts the compromised key would accept an attacker's release. Verify the release by hand first, as below.
+3. Tell every installation's owner to install that release by hand, because a binary that still trusts the compromised key would accept an attacker's release. Verify the release by hand first, as below.
 
 ## Checking a release by hand
 

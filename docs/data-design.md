@@ -1,6 +1,6 @@
 # Data storage and reads: design proposal
 
-- **Status:** accepted and implemented on branch `feat/5-minute-rollups` (1.10.0). See ADR-011 in `DECISIONS.md`. The SD card measurement in section 9 is still to be done on the Pi.
+- **Status:** accepted and implemented on branch `feat/5-minute-rollups` (1.10.0). See ADR-011 in `DECISIONS.md`. The flash-write measurement in section 9 is still to be done on a Raspberry Pi 3.
 - **Decisions:** [section 10](#10-decisions).
 - **Date:** 2026-11-07
 - **Scope:** how etapo stores what the plugs return, and how the API reads it back for the dashboard.
@@ -10,9 +10,9 @@
 
 ## 1. Summary
 
-**Problem.** With eight plugs, etapo writes every 10-second reading to SQLite, keeps them for up to 1095 days (the Pi's setting), and recomputes every dashboard figure from those raw rows. On the Pi this costs much more than the data is worth:
+**Problem.** With eight plugs, etapo writes every 10-second reading to SQLite, keeps them for up to 1095 days (the setting of the reference installation; the `config.example.yaml` default is 90), and recomputes every dashboard figure from those raw rows. On a Raspberry Pi 3 this costs much more than the data is worth:
 
-- The process writes about **680 to 870 MB per day** to the SD card (three measurements, section 2.1). The data itself is about 24 MB per day, so the writes are roughly 30 times the data.
+- The process writes about **680 to 870 MB per day** to its SD card (three measurements, section 2.1). The data itself is about 24 MB per day, so the writes are roughly 30 times the data.
 - At full rate and 1095 days, the database grows to about **26 GB**.
 - The dashboard asks for `/api/summary` on every live reading, and each request runs the full per-plug analytics over raw rows.
 
@@ -24,21 +24,21 @@
 4. **Stop asking for a summary on every reading.** Push it with the live events, or throttle the requests.
 5. **Fix the 30-second cut-off of the live stream** (a separate bug, see section 8).
 
-**Expected effect** (estimates, to be verified on the Pi with the method in section 9):
+**Expected effect** (estimates, to be verified on a Raspberry Pi 3 with the method in section 9):
 
 | | Now | Proposed |
 |---|---|---|
 | Rows per day (8 plugs) | 69 120 | 2 304 |
 | Data per day | about 24 MB | about 0.12 MB |
 | Data at 1095 days | about 26 GB | about 140 MB |
-| SD writes per day | 680 to 870 MB (measured) | tens of MB (estimate) |
+| Flash writes per day | 680 to 870 MB (measured) | tens of MB (estimate) |
 | Summary cost | rows since midnight and the standby window, per plug, per request | 8 state rows and a few hundred bucket rows, cached |
 
 ---
 
 ## 2. Measurements
 
-### 2.1 Raspberry Pi (production, v1.9.0, 2026-11-07)
+### 2.1 Raspberry Pi 3, reference installation (v1.9.0, 2026-11-07)
 
 Read-only checks: `ls`, `systemctl`, a read-only SQLite query, `/proc/<pid>/status` and `/proc/<pid>/io`.
 
@@ -46,7 +46,7 @@ Read-only checks: `ls`, `systemctl`, a read-only SQLite query, `/proc/<pid>/stat
 |---|---|
 | Database file | 62.8 MB, 15 333 pages of 4 KB, 0 free pages |
 | Rows | 183 973, from 2026-10-29 |
-| Plugs with data | 2 plugs at full rate since 29 Oct. 6 plugs since about 10:00 today. |
+| Plugs with data | 2 plugs at full rate since 29 Oct. 6 plugs since about 10:00 on 2026-11-07. |
 | Bytes per row | 341 (file size / rows, includes both indexes) |
 | Configuration | poll 10 s, flush 30 s, buffer 100, retention 1095 days, 8 `tapo` plugs |
 | Full-rate data | 8 × 8 640 = 69 120 rows per day, about 23.6 MB per day, about 25.8 GB at 1095 days |
@@ -79,7 +79,7 @@ Most of the time goes to `GetPlugs`. Every summary and breakdown request runs it
 
 ### 2.3 What one open dashboard costs
 
-The dashboard requests `/api/summary` once per `reading` event. Requests are single-flight, so one runs while the next waits, and the waiting request runs right after. v1.9.0 limited this to one summary and one plugs request at a time (PR #31). That caps how many run in parallel, not how many are requested. Assuming two summary runs per 10-second poll, plus a breakdown and a leaderboard every 30 seconds, the Mac spends about **1 s of CPU per 10 s** with `nights=1` and about **3 s** with `nights=7`. A Raspberry Pi 3 is roughly 10 to 20 times slower per core (an estimate, not measured). At that speed the summary alone would need more than one core, which would explain a loaded Pi while a dashboard is open. This was not measured with a browser attached. With no dashboard open, the Pi is idle (section 2.1).
+The dashboard requests `/api/summary` once per `reading` event. Requests are single-flight, so one runs while the next waits, and the waiting request runs right after. v1.9.0 limited this to one summary and one plugs request at a time (PR #31). That caps how many run in parallel, not how many are requested. Assuming two summary runs per 10-second poll, plus a breakdown and a leaderboard every 30 seconds, a MacBook spends about **1 s of CPU per 10 s** with `nights=1` and about **3 s** with `nights=7`. A Raspberry Pi 3 is roughly 10 to 20 times slower per core (an estimate, not measured). At that speed the summary alone would need more than one core, which would explain a loaded device while a dashboard is open. This was not measured with a browser attached. With no dashboard open, the reference device is idle (section 2.1).
 
 ---
 
@@ -232,7 +232,7 @@ Write volume (estimate): `plug_state` is one page per flush, about 2 880 flushes
 
 Done once, when the new version starts for the first time with the old tables present. Each step is idempotent.
 
-1. Copy the database file to a backup next to it (the Pi's file is 63 MB).
+1. Copy the database file to a backup next to it (the reference database is 63 MB).
 2. Create the new tables (`CREATE TABLE IF NOT EXISTS`) and write `schema_version`.
 3. Backfill `samples_5m` from `energy_readings`:
 
@@ -294,12 +294,12 @@ Everything not listed keeps its name and shape.
 | 1 | Totals include plugs that are off (`total_energy_today_kwh`, `total_energy_month_kwh`) | Changes numbers | Fixes known issue 3 in [api.md](api.md#known-issues). |
 | 2 | `POST …/power` without `on` returns 400 | Yes, for `{}` | Stops `{}` switching a plug off. |
 | 3 | `POST …/power` for an unknown plug returns 404 | Status only | Known issue 5. |
-| 4 | Unknown `range` in history returns 400 | Yes, for scripts relying on the fallback | Known issue 6. Your choice (section 10). |
-| 5 | `by=category` on breakdown is implemented or removed | Depends | Known issue 7. Your choice. |
-| 6 | `runtime_today_hours` comes from the device's `today_runtime` | Changes numbers | More accurate than the 3 W estimate. Your choice. |
+| 4 | Unknown `range` in history returns 400 | Yes, for scripts relying on the fallback | Known issue 6. See section 10. |
+| 5 | `by=category` on breakdown is implemented or removed | Depends | Known issue 7. See section 10. |
+| 6 | `runtime_today_hours` comes from the device's `today_runtime` | Changes numbers | More accurate than the 3 W estimate. See section 10. |
 | 7 | `voltage_v` and `current_ma` marked deprecated, then removed | Later | They are not measured. |
 | 8 | Plugs no longer in `config.yaml` are hidden from lists and totals (their data is kept) | Yes | Known issue 8. |
-| 9 | `nights=1` before the standby window ends shows the previous night | Changes numbers | Known issue 12. Your choice. |
+| 9 | `nights=1` before the standby window ends shows the previous night | Changes numbers | Known issue 12. See section 10. |
 | 10 | History points gain optional `max_watts` and `samples` | Additive | Lets clients see peaks in a bucket. |
 | 11 | `storage.max_buffer_size` is deprecated | Config | No per-poll buffer any more. |
 
@@ -318,20 +318,20 @@ These do not depend on the storage design and can ship as small fixes first.
 
 ## 9. Acceptance criteria
 
-Measured on the Pi, with the method of section 2.1, before and after:
+Measured on a Raspberry Pi 3, with the method of section 2.1, before and after:
 
 | Measure | Now | Target |
 |---|---|---|
-| SD writes, `write_bytes` per day, dashboard closed | 680 to 870 MB | under 100 MB |
-| SD writes, dashboard open | not measured | under 100 MB |
+| Flash writes, `write_bytes` per day, dashboard closed | 680 to 870 MB | under 100 MB |
+| Flash writes, dashboard open | not measured | under 100 MB |
 | Database growth per day | about 24 MB | under 0.2 MB |
-| `/api/summary` and `/api/plugs`, eight plugs, 1095 days of data | not measured (Mac: 288 ms and 314 ms at 30 days) | under 50 ms on the Pi, a few ms on the Mac |
+| `/api/summary` and `/api/plugs`, eight plugs, 1095 days of data | not measured (MacBook: 288 ms and 314 ms at 30 days) | under 50 ms on a Raspberry Pi 3, a few ms on a MacBook |
 | etapo CPU with dashboard open | not measured (estimate: over one core) | under 5 % |
 | Live stream | cut after 30 s | open for hours |
 
 Correctness checks:
 
-- For a migrated copy of the Pi's database, old and new responses match for `/api/leaderboard/*`, `/api/breakdown`, the 5-minute history, the standby averages and the peaks. Differences are allowed only where section 7 says so.
+- For a migrated copy of the reference database, old and new responses match for `/api/leaderboard/*`, `/api/breakdown`, the 5-minute history, the standby averages and the peaks. Differences are allowed only where section 7 says so.
 - Unit tests: bucket merge after a restart, counter reset within a day, the standby window over midnight, a daylight-saving day in the breakdown, and the migration backfill.
 - The end-to-end tests (`make e2e`) keep passing.
 
@@ -354,33 +354,18 @@ Correctness checks:
   - `nights=N` averages the N windows ending with that reference night.
 - **Release:** minor, 1.10.0.
 
-### 10.2 Still open
+### 10.2 Open
 
-- **Runtime widget:** the user may remove the widget. If it stays, it shows the device's `today_runtime`.
-
-### 10.3 Previously listed questions (answers above)
-
-1. **Raw readings.** Drop them entirely (recommended), or keep the last N hours for debugging? A short raw window would cost about 24 MB per day for each day kept.
-2. **Retention.** Keep 1095 days for the 5-minute data (about 140 MB), or change it? Should the daily rows follow the same setting?
-3. **Migration of the Pi's data.** Keep `energy_readings` for a verification period and then drop it? Accept one `VACUUM` as a one-time exception to ADR-009 to shrink the file? Or create a new database and copy the rollups into it?
-4. **API changes** from section 7, in particular:
-   - history `range` values that are not known return 400 (item 4)
-   - `POST …/power` without `on` returns 400 (item 2)
-   - `by=category`: implement or remove (item 5)
-   - `runtime_today_hours` from the device counter (item 6)
-   - standby for "last night" before 05:00 (item 9)
-5. **1-minute history.** Drop `range=1h`, or serve it from 5-minute buckets?
-6. **Versioning.** A schema change and API changes make this a minor release under AGENTS.md (currently 1.9.0 is the latest tag, so 1.10.0). Is that the version you expect? The SSE and `{}` fixes could ship first as a patch (1.9.1).
-7. **Pi operations.** Installing the new binary, migrating the database and restarting the service need your go-ahead (AGENTS.md).
-8. **Two pollers.** The Mac and the Pi both have the same eight plugs configured. If both run, every plug gets two sessions and two databases. Should the Mac copy poll only when you use it?
+- **Runtime widget:** whether to keep it. If it stays, it shows the device's `today_runtime`.
+- **Two etapo installations on the same plugs:** each plug gets two sessions and each installation keeps its own database. Behaviour with two concurrent sessions is not tested (see [tapo-api.md](tapo-api.md#8-known-quirks-and-risks)).
 
 ---
 
-## 11. Implementation order (after the decisions)
+## 11. Implementation order
 
 1. The small fixes from section 8, each with a test and a CHANGELOG entry.
 2. The new tables, the collector's bucket aggregation and the flush, with the migration and its tests.
-3. The read path, checked against the old code on a copy of the Pi's database (section 9).
+3. The read path, checked against the old code on a copy of a real database (section 9).
 4. The dashboard: no summary request per reading.
-5. Measure on the Pi with the method of section 2.1, and record the results here.
+5. Measure on a Raspberry Pi 3 with the method of section 2.1, and record the results here.
 6. Update `ARCHITECTURE.md`, `docs/configuration.md` (retention and flush settings), and add an ADR to `DECISIONS.md` for the 5-minute rollups.

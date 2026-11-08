@@ -7,10 +7,10 @@ This document tracks all foundational decisions for the `etapo` project, recordi
 ### ADR-001: Language Selection - Golang
 
 - **Status:** Accepted
-- **Context:** The application is intended to run continuously on a Raspberry Pi 3 (1GB RAM) with minimal CPU and RAM usage.
+- **Context:** The application is intended to run continuously on a low-power device such as a Raspberry Pi 3 (1GB RAM) with minimal CPU and RAM usage.
 - **Alternatives Considered:**
   - *Python (FastAPI + python-kasa):* Mature Tapo libraries, but runtime baseline is 80–150 MB RAM and higher CPU overhead under Python interpreter.
-  - *Node.js:* Memory footprint typically 60–120 MB RAM; requires Node runtime on the Pi.
+  - *Node.js:* Memory footprint typically 60–120 MB RAM; requires a Node runtime on the host.
   - *Rust:* Ultra-low memory, but longer build times and steeper contributor barrier.
 - **Decision:** Use **Go (Golang)**.
 - **Consequences:** 
@@ -21,12 +21,12 @@ This document tracks all foundational decisions for the `etapo` project, recordi
 
 ---
 
-### ADR-002: Storage Engine - SQLite with WAL and Batching for SD Card Protection
+### ADR-002: Storage Engine - SQLite with WAL and Batching for Flash Storage Protection
 
 - **Status:** Accepted
-- **Context:** Raspberry Pi 3 boots and runs from a microSD card. Continuous unbuffered random writes can rapidly wear out flash memory and cause corruption on sudden power loss.
+- **Context:** Many low-power boards such as the Raspberry Pi 3 boot and run from a microSD card. Continuous unbuffered random writes can rapidly wear out flash memory and cause corruption on sudden power loss.
 - **Alternatives Considered:**
-  - *TimescaleDB / InfluxDB:* Far too heavy for a 1GB Raspberry Pi 3.
+  - *TimescaleDB / InfluxDB:* Far too heavy for a 1GB device.
   - *Flat JSON/CSV files:* Lacks indexing, concurrency safety, and query capability for time-series charts.
   - *CGO SQLite (`mattn/go-sqlite3`):* Requires cross-compiler C toolchain (arm-linux-gnueabihf) when building from macOS.
 - **Decision:** Use pure-Go SQLite (`modernc.org/sqlite`) configured with:
@@ -72,7 +72,7 @@ This document tracks all foundational decisions for the `etapo` project, recordi
 - **Status:** Accepted
 - **Context:** A full React/Vue Node.js build pipeline adds complexity and deployment friction on an embedded system.
 - **Decision:** Use a clean, single-page UI built with vanilla JS and Tailwind (or minimal CSS) and Chart.js, embedded directly into the Go binary via `embed.FS`.
-- **Consequences:** Zero CPU overhead on the Pi for UI serving; visiting the web page downloads a lightweight single bundle (<100KB) and renders on the client browser. No Node.js required.
+- **Consequences:** Zero CPU overhead on the host for UI serving; visiting the web page downloads a lightweight single bundle (<100KB) and renders on the client browser. No Node.js required.
 
 ---
 
@@ -97,7 +97,7 @@ This document tracks all foundational decisions for the `etapo` project, recordi
 - **Alternatives Considered:**
   - *DHCP reservation only:* the recommended setup, but it does not protect against a reservation that is lost or a plug that moves to another network, and it does not stop a different plug answering at the configured address.
   - *ARP table lookup:* lists only devices that already answered at their current address, so it cannot find a plug that has moved.
-  - *Subnet broadcast of the discovery probe:* the Raspberry Pi's address is on a different subnet from the plugs, so a broadcast from it would not reach them. Unicast to each host of the /24 does reach them, and needs no socket option that differs per operating system.
+  - *Subnet broadcast of the discovery probe:* the host running etapo may be on a different subnet from the plugs, so a broadcast from it would not reach them. Unicast to each host of the /24 does reach them, and needs no socket option that differs per operating system.
   - *Writing the new address into `config.yaml` automatically:* changes the production configuration without the user's consent, and a YAML rewrite drops comments. See ADR-008.
 - **Decision:** Store the MAC address the device reports on the first successful poll. Before opening a session, ask the device at the configured address for its MAC address with the discovery probe, and refuse a different MAC address. Check the MAC address again after the login. After three failed polls, search the /24 network of the last known address for the stored MAC address, at most once a minute, and move the plug to the address where it is found. The configuration file is not changed.
 - **Consequences:**
@@ -122,13 +122,13 @@ This document tracks all foundational decisions for the `etapo` project, recordi
 ### ADR-009: Enforce Data Retention with an In-Process Daily Purge, No VACUUM
 
 - **Status:** Accepted (implemented in `internal/storage/sqlite.go`, `StartRetention` and `PurgeBefore`). Since 1.10.0 the purge applies to 5-minute buckets and daily totals instead of raw readings (ADR-011).
-- **Context:** `storage.retention_days` was validated and documented, but nothing deleted old readings, so the database grew without limit on the SD card. The purge has to run without any setup on the Raspberry Pi, and it must not add large writes to the SD card.
+- **Context:** `storage.retention_days` was validated and documented, but nothing deleted old readings, so the database grew without limit on the flash storage. The purge has to run without any setup on the host, and it must not add large writes to the storage.
 - **Alternatives Considered:**
   - *External cron job or systemd timer:* an extra piece to install and keep in sync with the binary and the config. Rejected because etapo must run with no setup beyond its binary and config.
   - *Purge on every flush:* deletes a little more often, but runs a delete on the hot write path for no real gain, since data only ages by the day.
-  - *`VACUUM` or `PRAGMA incremental_vacuum` after a purge:* returns space to the filesystem, but a full `VACUUM` rewrites the whole database, which is slow on a Raspberry Pi 3 and causes heavy SD card writes. Rejected. Freed pages stay in the file and SQLite reuses them for new readings, so the file size stays roughly constant once it reaches its steady state.
+  - *`VACUUM` or `PRAGMA incremental_vacuum` after a purge:* returns space to the filesystem, but a full `VACUUM` rewrites the whole database, which is slow on a small device such as a Raspberry Pi 3 and causes heavy flash writes. Rejected. Freed pages stay in the file and SQLite reuses them for new readings, so the file size stays roughly constant once it reaches its steady state.
 - **Decision:**
-  1. A goroutine with a `time.Ticker` in the process that writes readings (`etapo run` and `etapo collect`) deletes readings older than `retention_days` once a day. The purge also runs once at startup so a long-stopped Pi catches up on its first start.
+  1. A goroutine with a `time.Ticker` in the process that writes readings (`etapo run` and `etapo collect`) deletes readings older than `retention_days` once a day. The purge also runs once at startup so an etapo that was stopped for a long time catches up on its first start.
   2. Deletes are made in batches (for example, by timestamp ranges or a bounded `LIMIT`) so that the first purge after a long time does not hold the write lock for long.
   3. The database is not shrunk. No `VACUUM` is run. The file size stays at its high-water mark and SQLite reuses the freed pages.
   4. `etapo serve` does not purge. It only reads data, and a single process doing the purge keeps deletes from competing.
@@ -142,12 +142,12 @@ This document tracks all foundational decisions for the `etapo` project, recordi
 ### ADR-010: Self-Update from GitHub Releases with Signed Checksums
 
 - **Status:** Accepted
-- **Context:** Updating the Raspberry Pi meant copying a binary by hand. The Pi is reachable only on the LAN, so CI cannot push to it. The updater must not restart the service or overwrite files without the user starting it (see ADR-009 for the same reasoning about external timers). The update must verify that a release came from this project, and that check must not depend on an external service. An attempt to use GitHub attestations (SLSA provenance via Sigstore) failed when the public Sigstore transparency log returned HTTP 500 for over an hour during a database upgrade, which blocked the release job.
+- **Context:** Updating an installation meant copying a binary to it by hand. Installations are usually reachable only on their local network, so CI cannot push to them. The updater must not restart the service or overwrite files without the user starting it (see ADR-009 for the same reasoning about external timers). The update must verify that a release came from this project, and that check must not depend on an external service. An attempt to use GitHub attestations (SLSA provenance via Sigstore) failed when the public Sigstore transparency log returned HTTP 500 for over an hour during a database upgrade, which blocked the release job.
 - **Alternatives Considered:**
   - *GitHub attestations, verified with `gh attestation verify --bundle`:* needs a Sigstore transparency log at release time and at update time, so a Sigstore outage blocks releases.
   - *Verify the attestation in Go with `sigstore-go`:* no external tool needed, but about 350 more packages. The binary grew from 11.8 MB to 23.5 MB (linux/arm64) and daemon resident memory from about 18 MB to about 28 MB on macOS. That is too much for a check that runs once per update.
   - *Checksum only:* proves that a download matches `checksums.txt`, but not that the release came from this project, because an attacker who can replace a release can replace its checksums too.
-  - *Automatic updater timer:* rejected for the reasons in ADR-009 and the restart rule for the Pi.
+  - *Automatic updater timer:* rejected for the reasons in ADR-009 and because the service must not be restarted without the user's go-ahead.
 - **Decision:**
   1. `etapo --update` installs the latest release and `etapo --update-to VERSION` installs a given one. Both replace only the binary and exit. Neither restarts the service nor touches the config or database.
   2. The release workflow signs `checksums.txt` with Ed25519 keys held in the `RELEASE_SIGNING_KEYS` secret and writes `checksums.txt.sig`. The public keys are built into etapo (`builtinReleaseKeys`). A release is installed only when a signature from one of them verifies.
@@ -166,9 +166,9 @@ This document tracks all foundational decisions for the `etapo` project, recordi
 ### ADR-011: Store 5-Minute Buckets and Daily Totals Instead of Raw Readings
 
 - **Status:** Accepted (implemented in 1.10.0)
-- **Context:** Every 10-second reading of every plug was written to SQLite and kept for up to `retention_days`. With eight plugs that is 69 120 rows per day, about 24 MB, and at the default 1095-day retention about 26 GB. On the Raspberry Pi the process wrote 680 to 870 MB per day to the SD card, and every dashboard figure was recomputed from raw rows. The dashboard never shows anything finer than 5 minutes; the live value comes from the latest poll. See `docs/data-design.md` for the measurements.
+- **Context:** Every 10-second reading of every plug was written to SQLite and kept for up to `retention_days`. With eight plugs that is 69 120 rows per day, about 24 MB, and at the default 1095-day retention about 26 GB. On the reference device (a Raspberry Pi 3) the process wrote 680 to 870 MB per day to its SD card, and every dashboard figure was recomputed from raw rows. The dashboard never shows anything finer than 5 minutes; the live value comes from the latest poll. See `docs/data-design.md` for the measurements.
 - **Alternatives Considered:**
-  - *Keep raw readings and add a rollup table:* keeps the write volume and the SD card wear. Rejected.
+  - *Keep raw readings and add a rollup table:* keeps the write volume and the flash wear. Rejected.
   - *Write the open bucket to its own row on every poll:* about one write per plug per poll. Rejected for the same reason.
   - *Write the open bucket on every flush, to the bucket table:* about eight pages per flush. Rejected in favour of keeping it in the plug's state row, which is one page for all plugs.
 - **Decision:**
@@ -183,5 +183,5 @@ This document tracks all foundational decisions for the `etapo` project, recordi
   - Live values, and the open bucket, lag by up to one flush interval in the API.
   - `max_buffer_size` is ignored. The setting is still accepted.
   - Runtime from the device (`today_runtime`) is not stored, because the runtime widget was removed.
-  - SD card writes are expected to fall to tens of MB per day. This must be measured on the Pi (see `docs/data-design.md`, section 9) before the decision is marked as verified.
+  - Flash writes are expected to fall to tens of MB per day. This must be measured on a Raspberry Pi 3 (see `docs/data-design.md`, section 9) before the decision is marked as verified.
 

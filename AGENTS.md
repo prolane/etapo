@@ -7,10 +7,10 @@ This document provides context, design principles, and guidelines for AI agents 
 ## 1. Project Overview & Context
 
 - **Purpose:** A lightweight, self-hosted energy monitoring daemon and web dashboard designed to poll **TP-Link Tapo P115** (and P110) smart sockets, persist time-series energy metrics, and expose an API and Web UI.
-- **Primary Deployment Target:** **Raspberry Pi 3** (1GB RAM, ARMv8 64-bit Cortex-A53, running Raspberry Pi OS from a microSD card).
+- **Primary Deployment Target:** small, low-power Linux boards, with the **Raspberry Pi 3** (1GB RAM, ARMv8 64-bit Cortex-A53, running from a microSD card) as the reference device. The project also runs on macOS, Windows and amd64 Linux, so do not add dependencies or code paths that assume one platform.
 - **Core Constraints:**
   - Absolute minimum CPU & RAM consumption (RAM < 30MB, CPU < 1%).
-  - MicroSD card wear protection: WAL mode + batched writes.
+  - Flash storage wear protection (SD cards and similar): WAL mode + batched writes.
   - Zero CGO dependency: must build with `CGO_ENABLED=0` for easy cross-compilation from Mac/PC to `linux/arm64` or `linux/arm`.
   - Zero runtime dependencies (no Docker required, no Node.js required, no external databases).
 
@@ -18,8 +18,8 @@ This document provides context, design principles, and guidelines for AI agents 
 
 ## 2. Key References
 
-- **Architecture:** Read [`ARCHITECTURE.md`](file:///Users/gerard/git-repos/etapo/ARCHITECTURE.md) for module decomposition, data flow, and runtime modes.
-- **Decisions:** Read [`DECISIONS.md`](file:///Users/gerard/git-repos/etapo/DECISIONS.md) before making architectural changes.
+- **Architecture:** Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for module decomposition, data flow, and runtime modes.
+- **Decisions:** Read [`DECISIONS.md`](DECISIONS.md) before making architectural changes.
 - **Go Version:** Go 1.27 (pinned in `go.mod`; CI and release workflows read it from there). Use the Homebrew install (`brew install go`), not the legacy `/usr/local/go`.
 
 ---
@@ -55,7 +55,7 @@ TP-Link Tapo P110/P115 devices use the **KLAP** protocol (AES-128-CBC encryption
 
 ---
 
-## 5. Storage & SD Card Guidelines
+## 5. Storage & Flash Wear Guidelines
 
 - Always use `modernc.org/sqlite` (pure Go, CGO-free).
 - Always ensure SQLite connections execute:
@@ -76,11 +76,11 @@ Prefer the `Makefile` targets (`make help` lists them): `make build`, `make run`
   ```bash
   go run ./cmd/etapo --config config.example.yaml
   ```
-- **Cross-compile for Raspberry Pi 3 (64-bit):**
+- **Cross-compile for Linux arm64 (e.g. Raspberry Pi 3 with a 64-bit OS):**
   ```bash
   CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/etapo-linux-arm64 ./cmd/etapo
   ```
-- **Cross-compile for Raspberry Pi 3 (32-bit):**
+- **Cross-compile for Linux armv7 (e.g. Raspberry Pi with a 32-bit OS):**
   ```bash
   CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="-s -w" -o dist/etapo-linux-arm ./cmd/etapo
   ```

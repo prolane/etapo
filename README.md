@@ -1,17 +1,23 @@
 # Etapo ⚡
 
-> Ultra-lightweight, self-hosted energy monitoring daemon and web dashboard designed for **TP-Link Tapo P115** (and P110) smart plugs. Built in pure Go, optimized specifically for **Raspberry Pi 3**.
+[![CI](https://github.com/prolane/etapo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/prolane/etapo/actions/workflows/ci.yml)
+[![Security](https://github.com/prolane/etapo/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/prolane/etapo/actions/workflows/security.yml)
+[![CodeQL](https://github.com/prolane/etapo/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/prolane/etapo/actions/workflows/codeql.yml)
+[![Latest release](https://img.shields.io/github/v/release/prolane/etapo)](https://github.com/prolane/etapo/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/prolane/etapo)](LICENSE)
+
+> Ultra-lightweight, self-hosted energy monitoring daemon and web dashboard designed for **TP-Link Tapo P115** (and P110) smart plugs. Built in pure Go, it runs on small, low-power Linux boards such as the **Raspberry Pi 3**, and also on macOS, Windows and ordinary Linux servers.
 
 ---
 
 ## Highlights
 
-- **Ultra-Low Footprint:** Consumes < 20MB of RAM and < 0.5% CPU when idle on a Raspberry Pi 3.
-- **MicroSD Card Protection:** In-memory batch buffering + SQLite WAL mode (`PRAGMA synchronous = NORMAL;`) to minimize write amplification and prevent SD card degradation.
+- **Ultra-Low Footprint:** Uses under 30MB of RAM and very little CPU when idle. On a Raspberry Pi 3, the reference device, the measured idle process used about 23MB (see [Measurements](docs/data-design.md#2-measurements)).
+- **Flash Storage Protection:** In-memory batch buffering + SQLite WAL mode (`PRAGMA synchronous = NORMAL;`) to minimize write amplification and wear on SD cards and other flash storage.
 - **Zero CGO / Pure Go:** Uses `modernc.org/sqlite` — cross-compile cleanly for `linux/arm64` or `linux/arm` directly from macOS or Linux with `CGO_ENABLED=0` and zero cross-compiler toolchains.
 - **Zero Runtime Dependencies:** No Docker, no Node.js, and no external database needed. The web UI is embedded directly into the single binary.
 - **Real-Time Web Dashboard:** Instant live wattage updates via Server-Sent Events (SSE), per-socket relay toggle switches, and historical consumption graphs.
-- **Dual Mode (Hardware & Simulator):** Built-in realistic mock driver (fridge, TV, kettle, workstation curves) for development before physical sockets arrive.
+- **Dual Mode (Hardware & Simulator):** Built-in realistic mock driver (fridge, TV, kettle, workstation curves) for trying out etapo before you have physical sockets.
 - **Survives Address Changes:** When a Tapo plug gets a new IP address from the router, etapo finds it again by its MAC address, and the dashboard offers to update `config.yaml`. Plugs that stop answering are marked offline.
 
 ---
@@ -52,14 +58,24 @@
 │ Frontend UI (`internal/web` embedded via go:embed)                              │
 │  - Single HTML/JS/CSS bundle compiled directly into the Go binary               │
 │  - Zero client build tools needed; client-side rendering with Chart.js          │
-│  - Total Pi CPU overhead for web UI: zero (browser does rendering)              │
+│  - Host CPU overhead for web UI: zero (browser does rendering)                  │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 For in-depth architectural details and design rationale, see:
-- [`ARCHITECTURE.md`](file:///Users/gerard/git-repos/etapo/ARCHITECTURE.md)
-- [`DECISIONS.md`](file:///Users/gerard/git-repos/etapo/DECISIONS.md)
-- [`AGENTS.md`](file:///Users/gerard/git-repos/etapo/AGENTS.md)
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- [`DECISIONS.md`](DECISIONS.md)
+- [`AGENTS.md`](AGENTS.md)
+
+---
+
+## Quality, Security and Releases
+
+- **Every change is tested before it reaches `main`.** CI runs gofmt, `go vet`, the unit tests with the race detector, end-to-end tests against mock plugs (the dashboard, API, relay control, event stream and restart persistence), and a cross-compile of every release target.
+- **Releases only ship after CI passes.** A release is built from a tag, and the release workflow runs the same CI checks first. If they fail, nothing is published.
+- **Releases are signed.** Each release's checksums carry an Ed25519 signature, and `etapo --update` installs only releases whose signature verifies. See [release signing](docs/release-signing.md).
+- **Security checks run on every change and weekly.** `govulncheck` (known vulnerabilities in dependencies), `gosec` (static analysis), `gitleaks` (secrets in the git history), and CodeQL. Secret scanning and push protection are enabled on the repository.
+- **Dependency updates are fast.** Dependabot opens update PRs for Go modules and GitHub Actions weekly, and immediately for known security vulnerabilities. A Dependabot PR is approved and merged automatically once all six required checks pass. A scheduled job publishes a patch release for merged updates every three hours.
 
 ---
 
@@ -72,14 +88,14 @@ Pre-compiled standalone binaries are published for every release on GitHub. You 
 Available packages for each release:
 | Target Platform | Architecture | Archive |
 |---|---|---|
-| **Raspberry Pi 3 / 4 / 5 (64-bit)** | `linux-arm64` | `etapo-linux-arm64-v*.tar.gz` |
-| **Raspberry Pi (32-bit)** | `linux-armv7` | `etapo-linux-armv7-v*.tar.gz` |
-| **Synology NAS / Linux Server** | `linux-amd64` | `etapo-linux-amd64-v*.tar.gz` |
+| **Linux ARM64 (e.g. Raspberry Pi 3/4/5 with 64-bit OS)** | `linux-arm64` | `etapo-linux-arm64-v*.tar.gz` |
+| **Linux ARMv7 (e.g. Raspberry Pi with 32-bit OS)** | `linux-armv7` | `etapo-linux-armv7-v*.tar.gz` |
+| **Linux x86-64 (servers, e.g. Synology NAS)** | `linux-amd64` | `etapo-linux-amd64-v*.tar.gz` |
 | **macOS Apple Silicon (M1/M2/M3/M4)** | `darwin-arm64` | `etapo-darwin-arm64-v*.tar.gz` |
 | **macOS Intel** | `darwin-amd64` | `etapo-darwin-amd64-v*.tar.gz` |
 | **Windows PC** | `windows-amd64` | `etapo-windows-amd64-v*.zip` |
 
-### Quick Install (e.g. Raspberry Pi or Linux)
+### Quick Install (Linux)
 ```bash
 # 1. Download and extract the archive for your architecture
 tar -xzf etapo-linux-arm64-*.tar.gz
@@ -124,6 +140,8 @@ A missing config file is an error; etapo never falls back to the example config.
 ## Configuration
 
 All settings are in one YAML file (`config.yaml` by default). The complete reference, with the default for each key, the validation rules and what etapo writes to the file, is in **[docs/configuration.md](docs/configuration.md)**.
+
+Set the `billing` section to your own currency and electricity price (`currency` and `cost_per_kwh`). Every cost on the dashboard and in the API uses them. See [billing](docs/configuration.md#billing).
 
 ---
 
@@ -182,31 +200,31 @@ An end earlier than the start wraps past midnight (for example `start: "23:00"`,
 
 ---
 
-## Cross-Compiling for Raspberry Pi 3
+## Cross-Compiling for Linux on ARM
 
-Compile directly from your Mac or PC to a single static binary:
+You can compile on your Mac or PC for a single static binary. Use the value that matches the device's operating system:
 
-### 64-bit Raspberry Pi OS (Recommended)
+### 64-bit Linux, such as Raspberry Pi OS 64-bit (Recommended for Raspberry Pi 3 and newer)
 ```bash
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/etapo-linux-arm64 ./cmd/etapo
 ```
 
-### 32-bit Raspberry Pi OS
+### 32-bit Linux, such as Raspberry Pi OS 32-bit
 ```bash
 CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="-s -w" -o dist/etapo-linux-arm ./cmd/etapo
 ```
 
-Then copy the binary and your `config.yaml` to the Raspberry Pi:
+Then copy the binary and your `config.yaml` to the device (replace `<user>` and `<host>` with your own):
 ```bash
-scp dist/etapo-linux-arm64 pi@raspberrypi.local:/home/pi/etapo
-scp config.yaml pi@raspberrypi.local:/home/pi/config.yaml
+scp dist/etapo-linux-arm64 <user>@<host>:/home/<user>/etapo
+scp config.yaml <user>@<host>:/home/<user>/config.yaml
 ```
 
 ---
 
-## Running as a systemd Service on Raspberry Pi
+## Running as a systemd Service on Linux
 
-Create `/etc/systemd/system/etapo.service`:
+Create `/etc/systemd/system/etapo.service`, replacing `<user>` with the account that should run etapo:
 
 ```ini
 [Unit]
@@ -215,9 +233,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi
-ExecStart=/home/pi/etapo --config /home/pi/config.yaml
+User=<user>
+WorkingDirectory=/home/<user>
+ExecStart=/home/<user>/etapo --config /home/<user>/config.yaml
 Restart=always
 RestartSec=5
 LimitNOFILE=4096

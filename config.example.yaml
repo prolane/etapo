@@ -8,7 +8,7 @@ server:
 storage:
   # SQLite database path
   db_path: "./data/etapo.db"
-  # How often in seconds to write the live state and the open 5-minute bucket to disk (protects the SD card)
+  # How often in seconds to write the live state and the open 5-minute bucket to disk (protects flash storage such as SD cards)
   flush_interval_sec: 30
   # Data retention in days for 5-minute buckets and daily totals
   retention_days: 90
