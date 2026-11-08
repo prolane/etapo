@@ -56,11 +56,11 @@ func sign(path string) error {
 	if err != nil {
 		return fmt.Errorf("RELEASE_SIGNING_KEYS: %w", err)
 	}
-	sums, err := os.ReadFile(path)
+	sums, err := os.ReadFile(path) // #nosec G703 -- path is a file the maintainer names on the command line
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(path+".sig", update.SignChecksums(sums, keys), 0o644); err != nil {
+	if err := os.WriteFile(path+".sig", update.SignChecksums(sums, keys), 0o644); err != nil { // #nosec G703 -- path is a file the maintainer names on the command line
 		return err
 	}
 	ids := make([]string, 0, len(keys))
@@ -72,11 +72,11 @@ func sign(path string) error {
 }
 
 func verify(path string) error {
-	sums, err := os.ReadFile(path)
+	sums, err := os.ReadFile(path) // #nosec G703 -- path is a file the maintainer names on the command line
 	if err != nil {
 		return err
 	}
-	sigs, err := os.ReadFile(path + ".sig")
+	sigs, err := os.ReadFile(path + ".sig") // #nosec G703 -- path is a file the maintainer names on the command line
 	if err != nil {
 		return err
 	}

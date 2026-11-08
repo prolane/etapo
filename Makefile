@@ -4,8 +4,11 @@ DIST := dist
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 CONFIG ?= config.example.yaml
+GOVULNCHECK_VERSION ?= v1.9.0
+GOSEC_VERSION ?= v2.30.0
+GITLEAKS_VERSION ?= v8.30.1
 
-.PHONY: help build run test e2e vet fmt fmt-check lint ci cross clean
+.PHONY: help build run test e2e vet fmt fmt-check lint govulncheck gosec secrets security ci cross clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -34,6 +37,17 @@ fmt-check: ## Fail if any Go file is not gofmt-clean
 	if [ -n "$$unformatted" ]; then echo "Files need gofmt:"; echo "$$unformatted"; exit 1; fi
 
 lint: fmt-check vet ## Run format check and vet
+
+govulncheck: ## Check dependencies for known vulnerabilities; needs network the first time
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+gosec: ## Check the code for high-severity, high-confidence security issues; needs network the first time
+	$(GO) run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) -severity high -confidence high -quiet ./...
+
+secrets: ## Scan the git history for committed secrets (gitleaks); needs network the first time
+	$(GO) run github.com/zricethezav/gitleaks/v8@$(GITLEAKS_VERSION) detect --no-banner --redact
+
+security: govulncheck gosec secrets ## Run govulncheck, gosec and gitleaks, as the security workflow does
 
 ci: lint test e2e cross ## Run everything CI runs
 
