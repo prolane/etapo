@@ -6,11 +6,11 @@ Etapo is an ultra-lightweight, self-hosted energy monitoring daemon and web dash
 
 ## 1. Primary Constraints & Goals
 
-- **Target Platform:** Raspberry Pi 3 (1GB RAM, ARMv8 Cortex-A53).
+- **Target Platforms:** Small, low-power machines first, such as a Raspberry Pi 3 (1GB RAM, ARMv8 Cortex-A53), which is the reference device for the measurements. Also supported: macOS, Windows, and Linux on amd64 or arm64.
 - **Resource Budget:** 
   - Memory: < 30MB RAM.
   - CPU: Idle < 0.5%, polling spikes < 2%.
-  - Storage: SD card protection is paramount (minimize random I/O and synchronous writes).
+  - Storage: flash storage wear (SD cards, eMMC) is a concern, so minimize random I/O and synchronous writes.
 - **Zero External Dependencies:** Single compiled binary without requiring external services like Docker, Redis, or Node.js.
 - **Cross-Compilation:** Can be built with `CGO_ENABLED=0` for `linux/arm64` or `linux/arm` directly from macOS or Linux.
 
@@ -52,7 +52,7 @@ Etapo is an ultra-lightweight, self-hosted energy monitoring daemon and web dash
 │ Frontend UI (`internal/web` embedded via go:embed)                              │
 │  - Single HTML/JS/CSS bundle compiled directly into the Go binary               │
 │  - Zero client build tools needed; client-side rendering with Chart.js          │
-│  - Total Pi CPU overhead for web UI: zero (browser does rendering)              │
+│  - Host CPU overhead for web UI: zero (browser does rendering)                  │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 

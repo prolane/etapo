@@ -402,7 +402,7 @@ Errors are plain text in the body, with an HTTP status.
 
 ## Dashboard usage
 
-What the dashboard in `internal/web/static/index.html` requests, and when. The numbers show how often each request runs, which is what makes the load on the Pi.
+What the dashboard in `internal/web/static/index.html` requests, and when. The numbers show how often each request runs, which is what makes the load on the host running etapo.
 
 | Trigger | Requests |
 |---|---|

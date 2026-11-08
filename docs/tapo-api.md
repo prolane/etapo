@@ -233,7 +233,7 @@ Over HTTP, a request that is refused returns a status other than 200. Etapo repo
 - **Counters are whole Wh and reset at device midnight.** A poll missed around midnight can leave the last value of the previous day unknown.
 - **No voltage on P115.** `voltage_v` in etapo's data is a constant, not a measurement.
 - **A session belongs to the address it was opened at.** After a plug moves, the old address can answer for another plug on the same account. etapo checks the MAC address before and after each login to prevent this (ADR-007).
-- **Two pollers on the same plugs.** The Mac and the Pi both have these eight plugs configured. Running both doubles the requests on each plug and gives two separate databases. We have not tested how the plugs behave with two concurrent sessions.
+- **Two pollers on the same plugs.** If two etapo installations (for example one on a laptop and one on a Raspberry Pi) have the same plugs configured, each plug gets two sessions and each installation keeps its own database. Running both doubles the requests on each plug. We have not tested how the plugs behave with two concurrent sessions.
 - **Privacy.** `latitude`, `longitude`, `ssid`, `device_id` and the MAC address are personal. Keep them out of logs, issues and documentation.
 
 ---
